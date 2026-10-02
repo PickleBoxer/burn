@@ -22,6 +22,8 @@ const PANE = 'burn'
 const REFRESH_MS = 10 * 60 * 1000
 const TICK_MS = 60 * 1000
 const KEEP_DAYS = 40
+const LABEL_COLUMNS = 10
+const PRICE_COLUMNS = 10
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 
 const usageAtom = atom({ plugin: 'burn', key: 'usage' } as const, null)
@@ -214,7 +216,7 @@ export const register: Register = on => {
     const today = localDate(now)
     const days = lastSevenDays(stored, now)
     const max = Math.max(...days.map(day => day.usd), 0)
-    const barWidth = Math.max(8, Math.min(40, e.props.bodyColumns - 24))
+    const barWidth = Math.max(8, Math.min(40, e.props.bodyColumns - LABEL_COLUMNS - PRICE_COLUMNS - 2))
     const since = stored.map(day => day.date).sort()[0]
 
     return (
@@ -244,11 +246,25 @@ export const register: Register = on => {
 
         <Box flexDirection="column">
           <Text bold>Last 7 days</Text>
+          {/* Fixed label and price columns, so the bars line up whatever the amounts are */}
           {days.map(day => (
-            <Text key={day.date} bold={day.date === today}>
-              {weekday(day.date)} {day.date.slice(5)} <Text color="green">{bar(day.usd, max, barWidth)}</Text>{' '}
-              {money(day.usd).padStart(9)}
-            </Text>
+            <Box key={day.date} flexDirection="row" gap={1}>
+              <Box width={LABEL_COLUMNS} flexShrink={0}>
+                <Text bold={day.date === today} wrap="truncate">
+                  {weekday(day.date)} {day.date.slice(5)}
+                </Text>
+              </Box>
+              <Box flexGrow={1} flexShrink={1} overflow="hidden">
+                <Text color="green" wrap="truncate">
+                  {bar(day.usd, max, barWidth)}
+                </Text>
+              </Box>
+              <Box width={PRICE_COLUMNS} flexShrink={0} justifyContent="flex-end">
+                <Text bold={day.date === today} wrap="truncate">
+                  {money(day.usd)}
+                </Text>
+              </Box>
+            </Box>
           ))}
         </Box>
 
