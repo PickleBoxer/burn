@@ -1,0 +1,16 @@
+{
+  "name": "burn",
+  "owner": {
+    "name": "PickleBoxer"
+  },
+  "metadata": {
+    "description": "burn, a Claude Code mod for rate limits and spend"
+  },
+  "plugins": [
+    {
+      "name": "burn",
+      "source": "./",
+      "description": "Rate limits and spend above the prompt, with a /burn pane for the last 7 days"
+    }
+  ]
+}
