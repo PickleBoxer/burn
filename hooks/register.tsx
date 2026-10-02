@@ -1,28 +1,33 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionMeasureInput, SessionUsage } from 'claude-code'
 
-import type { History, Usage } from '../types'
+import type { Credits, Day, Usage } from '../types'
 import {
   bar,
+  creditsLabel,
+  creditsPercent,
+  daysAgo,
   glyph,
   lastSevenDays,
   level,
   limitLabel,
   localDate,
   money,
-  parseDaily,
+  parseCredits,
   resetsIn,
-  sinceArg,
   totals,
 } from './format'
 
 const PANE = 'burn'
 const REFRESH_MS = 10 * 60 * 1000
 const TICK_MS = 60 * 1000
+const KEEP_DAYS = 40
+const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 
 const usageAtom = atom({ plugin: 'burn', key: 'usage' } as const, null)
-const historyAtom = atom({ plugin: 'burn', key: 'history' } as const, null)
-const errorAtom = atom({ plugin: 'burn', key: 'error' } as const, null)
+const daysAtom = atom({ plugin: 'burn', key: 'days' } as const, [])
+const creditsAtom = atom({ plugin: 'burn', key: 'credits' } as const, null)
+const recordedAtom = atom({ plugin: 'burn', key: 'recordedUsd' } as const, null)
 const nowAtom = atom({ plugin: 'burn', key: 'now' } as const, 0)
 
 const HEX = { green: '#4caf50', yellow: '#d9a520', red: '#e5534b' }
@@ -55,56 +60,98 @@ function weekday(date: string): string {
   return WEEKDAYS[new Date(y ?? 0, (m ?? 1) - 1, d ?? 1).getDay()] ?? ''
 }
 
-// The ccusage run in flight, so a second caller waits for it instead of starting another
-let inflight: Promise<void> | null = null
-
 // Moves the clock the countdowns read, which redraws the band and the pane
 async function tick($: EngineInterface): Promise<void> {
   const now = await $.clock.now()
   await update($, nowAtom, () => now)
 }
 
-function refresh($: EngineInterface, argv: string[]): Promise<void> {
-  inflight ??= readCcusage($, argv).finally(() => {
-    inflight = null
-  })
+// Daily totals live in $.store as `day:YYYY-MM-DD`, shared by every session on the machine
+async function loadDays($: EngineInterface): Promise<void> {
+  const oldest = daysAgo(await $.clock.now(), KEEP_DAYS)
+  const days: Day[] = []
 
-  return inflight
-}
-
-async function readCcusage($: EngineInterface, argv: string[]): Promise<void> {
-  try {
-    const now = await $.clock.now()
-    const sessionUsdAtFetch = (await $.session.usage()).cost?.usd ?? 0
-    const { exitCode, stdout, stderr } = await $.process.run(
-      [...argv, 'daily', '--json', '--since', sinceArg(now)],
-      { timeoutMs: 120_000 },
-    )
-
-    if (exitCode !== 0) {
-      throw new Error(stderr.trim().split('\n').pop() || `ccusage exited with ${exitCode}`)
+  for (const key of await $.store.keys()) {
+    if (!key.startsWith('day:')) {
+      continue
     }
 
-    const history: History = { days: parseDaily(stdout), fetchedAt: now, sessionUsdAtFetch }
-    await update($, historyAtom, () => history)
-    await update($, errorAtom, () => null)
-  } catch (error) {
-    await update($, errorAtom, () => (error instanceof Error ? error.message : String(error)))
+    const date = key.slice(4)
+
+    if (date < oldest) {
+      await $.store.delete(key)
+    } else {
+      days.push({ date, usd: Number((await $.store.get(key)) ?? 0) })
+    }
   }
+
+  await update($, daysAtom, () => days)
+}
+
+// Adds what the session spent since the last measurement to today's total
+async function record($: EngineInterface, sessionUsd: number | null): Promise<void> {
+  const recorded = await read($, recordedAtom)
+
+  if (sessionUsd === null) {
+    return
+  }
+
+  // First reading, or /clear started the session's cost over
+  if (recorded === null || sessionUsd < recorded) {
+    await update($, recordedAtom, () => sessionUsd)
+
+    return
+  }
+
+  const delta = sessionUsd - recorded
+
+  if (delta <= 0) {
+    return
+  }
+
+  await update($, recordedAtom, () => sessionUsd)
+  const key = `day:${localDate(await $.clock.now())}`
+  await $.store.set(key, Number((await $.store.get(key)) ?? 0) + delta)
+  await loadDays($)
+}
+
+// Usage credits come from the endpoint /status reads. It's internal, so any failure hides them.
+async function loadCredits($: EngineInterface): Promise<void> {
+  let credits: Credits | null = null
+
+  try {
+    const auth = await $.session.authorize()
+
+    if (auth) {
+      const res = await $.http.fetch(USAGE_URL, { auth: auth.handle, headers: { 'anthropic-beta': 'oauth-2025-04-20' } })
+      credits = res.ok ? parseCredits(res.text) : null
+    }
+  } catch {
+    credits = null
+  }
+
+  await update($, creditsAtom, () => credits)
+}
+
+async function refresh($: EngineInterface): Promise<void> {
+  await loadDays($)
+  await loadCredits($)
 }
 
 async function summary($: EngineInterface): Promise<string> {
   const usage = await read($, usageAtom)
+  const credits = await read($, creditsAtom)
   const now = await $.clock.now()
-  const sum = totals(usage, await read($, historyAtom), now)
+  const sum = totals(usage?.sessionUsd ?? null, await read($, daysAtom), now)
   const limits = (usage?.limits ?? []).map(limit => {
     const resets = resetsIn(limit.resetsAt, now)
 
-    return `${limitLabel(limit.kind)} ${limit.percentUsed}%${resets ? ` (resets ${resets})` : ''}`
+    return `${glyph(limit.percentUsed)} ${limitLabel(limit.kind)} ${limit.percentUsed}%${resets ? ` (resets ${resets})` : ''}`
   })
 
   return [
     ...limits,
+    ...(credits ? [`${glyph(creditsPercent(credits))} ${creditsLabel(credits)} credits`] : []),
     `session ${money(sum.session)}`,
     `today ${money(sum.today)}`,
     `7d ${money(sum.week)}`,
@@ -112,37 +159,43 @@ async function summary($: EngineInterface): Promise<string> {
   ].join(' · ')
 }
 
-export const register: Register = (on, options) => {
-  const argv = String(options.ccusageCommand ?? 'bunx ccusage@20.0.26').split(/\s+/).filter(Boolean)
+export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'burn',
-      description: 'Show rate limits and spend for the last 7 days (/burn refresh to re-read ccusage)',
+      description: 'Show rate limits, usage credits and spend for the last 7 days',
     })
 
     const usage = toUsage(await $.session.usage())
     await update($, usageAtom, () => usage)
     await tick($)
 
-    void refresh($, argv)
-    $.clock.every(REFRESH_MS, () => void refresh($, argv))
+    // A resumed session's earlier cost was recorded by the process that ran it
+    if ((await read($, recordedAtom)) === null) {
+      await update($, recordedAtom, () => usage.sessionUsd ?? 0)
+    }
+
+    await loadDays($)
+    void loadCredits($)
+    $.clock.every(REFRESH_MS, () => void refresh($))
     $.clock.every(TICK_MS, () => void tick($))
 
     return next(e)
   })
 
   on('session.measure', async ($, e, next) => {
-    await update($, usageAtom, () => toUsage(e))
+    const usage = toUsage(e)
+    await update($, usageAtom, () => usage)
+    await record($, usage.sessionUsd)
 
     return next(e)
   })
 
   on('command.run', { command: 'burn' }, async ($, e) => {
     if (e.args.trim() === 'refresh') {
-      await refresh($, argv)
-      const error = await read($, errorAtom)
+      await refresh($)
 
-      return { text: error ? `ccusage failed: ${error}` : await summary($) }
+      return { text: await summary($) }
     }
 
     await $.ui.open({ id: PANE, title: 'burn', closeOnEscape: true })
@@ -154,41 +207,47 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)
     const usage = await read($, usageAtom)
-    const history = await read($, historyAtom)
-    const error = await read($, errorAtom)
+    const credits = await read($, creditsAtom)
+    const stored = await read($, daysAtom)
     const now = (await read($, nowAtom)) || (await $.clock.now())
-    const sum = totals(usage, history, now)
+    const sum = totals(usage?.sessionUsd ?? null, stored, now)
     const today = localDate(now)
-    const days = history ? lastSevenDays(history.days, now) : []
+    const days = lastSevenDays(stored, now)
     const max = Math.max(...days.map(day => day.usd), 0)
     const barWidth = Math.max(8, Math.min(40, e.props.bodyColumns - 24))
+    const since = stored.map(day => day.date).sort()[0]
 
     return (
       <Box flexDirection="column" gap={1}>
         <Box flexDirection="column">
-          <Text bold>Rate limits</Text>
+          <Text bold>Limits</Text>
           {(usage?.limits ?? []).length === 0 && <Text dimColor>No reading yet (needs a subscription and one request)</Text>}
           {(usage?.limits ?? []).map(limit => {
             const resets = resetsIn(limit.resetsAt, now)
 
             return (
               <Text key={limit.kind}>
-                <Text color={level(limit.percentUsed)}>{glyph(limit.percentUsed)}</Text> {limitLabel(limit.kind).padEnd(5)}
+                <Text color={level(limit.percentUsed)}>{glyph(limit.percentUsed)}</Text> {limitLabel(limit.kind).padEnd(8)}
                 <Text bold>{String(limit.percentUsed).padStart(5)}%</Text>
                 <Text dimColor>{resets ? `  resets in ${resets}` : ''}</Text>
               </Text>
             )
           })}
+          {credits && (
+            <Text key="credits">
+              <Text color={level(creditsPercent(credits))}>{glyph(creditsPercent(credits))}</Text> {'credits'.padEnd(8)}
+              <Text bold>{String(creditsPercent(credits)).padStart(5)}%</Text>
+              <Text dimColor>  {creditsLabel(credits)} this month</Text>
+            </Text>
+          )}
         </Box>
 
         <Box flexDirection="column">
           <Text bold>Last 7 days</Text>
-          {error && <Text color="red">ccusage failed: {error}</Text>}
-          {!history && !error && <Text dimColor>Reading ccusage…</Text>}
           {days.map(day => (
             <Text key={day.date} bold={day.date === today}>
               {weekday(day.date)} {day.date.slice(5)} <Text color="green">{bar(day.usd, max, barWidth)}</Text>{' '}
-              {money(day.usd).padStart(8)}
+              {money(day.usd).padStart(9)}
             </Text>
           ))}
         </Box>
@@ -199,8 +258,10 @@ export const register: Register = (on, options) => {
         </Text>
 
         <Box flexDirection="row" gap={2}>
-          <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void refresh($, argv)} />
-          <Text dimColor>API-equivalent cost from ccusage, not your bill on a subscription</Text>
+          <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void refresh($)} />
+          <Text dimColor>
+            ≈ is API-equivalent cost, recorded by burn{since ? ` since ${since}` : ''}. Only credits are billed.
+          </Text>
         </Box>
       </Box>
     )
@@ -208,17 +269,17 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const usage = await read($, usageAtom)
-    const history = await read($, historyAtom)
+    const credits = await read($, creditsAtom)
     const now = (await read($, nowAtom)) || (await $.clock.now())
 
-    if (e.props.hasSurvey || !usage || (usage.limits.length === 0 && usage.sessionUsd === null)) {
+    if (e.props.hasSurvey || !usage || (usage.limits.length === 0 && usage.sessionUsd === null && !credits)) {
       return next(e)
     }
 
     const elements = $.ui.resolve(e)
     const { Box, Text } = elements
-    const isCompact = e.props.bodyColumns < 90
-    const sum = totals(usage, history, now)
+    const isCompact = e.props.bodyColumns < 100
+    const sum = totals(usage.sessionUsd, await read($, daysAtom), now)
 
     // Svg draws only on Desktop, so the terminal gets a pie glyph instead
     const icon = (percent: number) =>
@@ -244,12 +305,16 @@ export const register: Register = (on, options) => {
             </Box>
           )
         })}
+        {credits && (
+          <Box key="credits" flexDirection="row" gap={1}>
+            {icon(creditsPercent(credits))}
+            <Text bold>{creditsLabel(credits)}</Text>
+            {!isCompact && <Text dimColor>credits</Text>}
+          </Box>
+        )}
         <Box key="spend" flexDirection="row" gap={1}>
-          <Text color="green" bold>
-            {money(sum.session)}
-          </Text>
-          <Text dimColor>{money(sum.today)} today</Text>
-          {!isCompact && <Text dimColor>{money(sum.month)} mo</Text>}
+          <Text dimColor>{money(sum.session)} session</Text>
+          {!credits && !isCompact && <Text dimColor>{money(sum.today)} today</Text>}
         </Box>
       </Box>
     )

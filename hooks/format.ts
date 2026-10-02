@@ -1,4 +1,4 @@
-import type { Day, History, Usage } from '../types'
+import type { Credits, Day } from '../types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -9,60 +9,66 @@ export function localDate(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
-// ccusage wants YYYYMMDD. Covers both the month so far and the last 7 days.
-export function sinceArg(now: number): string {
-  const sevenDaysAgo = localDate(now - 6 * DAY_MS)
-  const monthStart = localDate(now).slice(0, 8) + '01'
-  const since = sevenDaysAgo < monthStart ? sevenDaysAgo : monthStart
-
-  return since.replaceAll('-', '')
+export function daysAgo(now: number, days: number): string {
+  return localDate(now - days * DAY_MS)
 }
 
-// ccusage 20 names the day `period`, older versions `date`
-export function parseDaily(stdout: string): Day[] {
-  const json = JSON.parse(stdout) as { daily?: Array<Record<string, unknown>> }
+// The `extra_usage` block of /api/oauth/usage, or null when it's off or its shape changed
+export function parseCredits(body: string): Credits | null {
+  const extra = (JSON.parse(body) as { extra_usage?: Record<string, unknown> | null }).extra_usage
 
-  return (json.daily ?? []).map(row => ({
-    date: String(row.period ?? row.date),
-    usd: Number(row.totalCost ?? 0),
-  }))
+  if (!extra?.is_enabled || typeof extra.used_credits !== 'number' || typeof extra.monthly_limit !== 'number') {
+    return null
+  }
+
+  return {
+    used: extra.used_credits,
+    limit: extra.monthly_limit,
+    currency: String(extra.currency ?? 'USD'),
+    decimals: Number(extra.decimal_places ?? 2),
+  }
 }
 
 export function lastSevenDays(days: Day[], now: number): Day[] {
   const byDate = new Map(days.map(day => [day.date, day.usd]))
 
   return Array.from({ length: 7 }, (_, i) => {
-    const date = localDate(now - (6 - i) * DAY_MS)
+    const date = daysAgo(now, 6 - i)
 
     return { date, usd: byDate.get(date) ?? 0 }
   })
 }
 
-export type Totals = { session: number | null; today: number | null; month: number | null; week: number | null }
+export type Totals = { session: number | null; today: number; week: number; month: number }
 
-export function totals(usage: Usage | null, history: History | null, now: number): Totals {
-  const session = usage?.sessionUsd ?? null
-
-  if (!history) {
-    return { session, today: null, month: null, week: null }
-  }
-
-  // Spend since ccusage last read the transcripts
-  const delta = Math.max(0, (session ?? 0) - history.sessionUsdAtFetch)
+export function totals(sessionUsd: number | null, days: Day[], now: number): Totals {
   const today = localDate(now)
-  const month = today.slice(0, 7)
-  const sum = (days: Day[]) => days.reduce((total, day) => total + day.usd, 0)
+  const sum = (list: Day[]) => list.reduce((total, day) => total + day.usd, 0)
 
   return {
-    session,
-    today: sum(history.days.filter(day => day.date === today)) + delta,
-    month: sum(history.days.filter(day => day.date.startsWith(month))) + delta,
-    week: sum(lastSevenDays(history.days, now)) + delta,
+    session: sessionUsd,
+    today: sum(days.filter(day => day.date === today)),
+    week: sum(lastSevenDays(days, now)),
+    month: sum(days.filter(day => day.date.startsWith(today.slice(0, 7)))),
   }
 }
 
 export function money(usd: number | null): string {
-  return usd === null ? '–' : `$${usd.toFixed(2)}`
+  return usd === null ? '–' : `≈$${usd.toFixed(2)}`
+}
+
+const SYMBOLS: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' }
+
+export function creditsLabel(credits: Credits): string {
+  const symbol = SYMBOLS[credits.currency] ?? `${credits.currency} `
+  const amount = (minor: number, digits: number) => `${symbol}${(minor / 10 ** credits.decimals).toFixed(digits)}`
+  const isWhole = credits.limit % 10 ** credits.decimals === 0
+
+  return `${amount(credits.used, credits.decimals)} / ${amount(credits.limit, isWhole ? 0 : credits.decimals)}`
+}
+
+export function creditsPercent(credits: Credits): number {
+  return credits.limit > 0 ? Math.round((credits.used / credits.limit) * 100) : 0
 }
 
 export function resetsIn(resetsAt: string | undefined, now: number): string | null {

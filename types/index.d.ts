@@ -4,19 +4,17 @@ export type Usage = { limits: Limit[]; sessionUsd: number | null }
 
 export type Day = { date: string; usd: number }
 
-export type History = {
-  days: Day[]
-  fetchedAt: number
-  // Session cost when ccusage ran, so the live delta isn't counted twice
-  sessionUsdAtFetch: number
-}
+// Usage credits, in minor units such as cents
+export type Credits = { used: number; limit: number; currency: string; decimals: number }
 
 declare module 'claude-code' {
   interface PluginState {
     burn: {
       usage: Usage | null
-      history: History | null
-      error: string | null
+      days: Day[]
+      credits: Credits | null
+      // Session cost already added to the daily totals
+      recordedUsd: number | null
       now: number
     }
   }

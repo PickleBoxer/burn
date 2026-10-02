@@ -1,20 +1,12 @@
 {
   "name": "burn",
   "version": "0.1.0",
-  "description": "Rate limits and spend above the prompt, with a /burn pane for the last 7 days",
+  "description": "Rate limits, usage credits and spend above the prompt, with a /burn pane for the last 7 days",
   "author": {
     "name": "PickleBoxer"
   },
   "homepage": "https://github.com/PickleBoxer/burn",
   "repository": "https://github.com/PickleBoxer/burn",
   "license": "MIT",
-  "types": "./types/index.d.ts",
-  "userConfig": {
-    "ccusageCommand": {
-      "type": "string",
-      "title": "ccusage command",
-      "description": "Command that runs ccusage, split on spaces. Use an absolute path if the Desktop app can't find bunx.",
-      "default": "bunx ccusage@20.0.26"
-    }
-  }
+  "types": "./types/index.d.ts"
 }

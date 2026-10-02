@@ -2,48 +2,40 @@ import type { On } from 'claude-code'
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import type { History, Usage } from '../types'
-import { lastSevenDays, parseDaily, resetsIn, sinceArg, totals } from '../hooks/format'
+import type { Limit } from '../types'
+import { creditsLabel, lastSevenDays, parseCredits, resetsIn, totals } from '../hooks/format'
 
 const NOW = new Date(2026, 9, 2, 12, 0).getTime()
 const SURFACES = ['terminal', 'desktop'] as const
 const SCROLL = { offset: 0, bodyRows: 10 }
 
-const usage: Usage = {
-  limits: [
-    { kind: 'five_hour', percentUsed: 14, resetsAt: new Date(NOW + 67 * 60000).toISOString() },
-    { kind: 'seven_day', percentUsed: 83, resetsAt: new Date(NOW + 227 * 60000).toISOString() },
-  ],
-  sessionUsd: 0.5,
-}
+const limits: Limit[] = [
+  { kind: 'five_hour', percentUsed: 14, resetsAt: new Date(NOW + 67 * 60000).toISOString() },
+  { kind: 'seven_day', percentUsed: 83, resetsAt: new Date(NOW + 227 * 60000).toISOString() },
+]
 
-const history: History = {
-  days: [
-    { date: '2026-09-30', usd: 3 },
-    { date: '2026-10-01', usd: 2 },
-    { date: '2026-10-02', usd: 1 },
-  ],
-  fetchedAt: NOW,
-  sessionUsdAtFetch: 0.25,
+const days = [
+  { date: '2026-09-30', usd: 3 },
+  { date: '2026-10-01', usd: 2 },
+  { date: '2026-10-02', usd: 1 },
+]
+
+const USAGE_BODY = JSON.stringify({
+  five_hour: { utilization: 14 },
+  extra_usage: { is_enabled: true, monthly_limit: 12000, used_credits: 12006, currency: 'EUR', decimal_places: 2 },
+})
+
+function measure(usd: number) {
+  return { context: { window: 200_000 }, rateLimits: limits, cost: { usd }, changed: ['cost' as const] }
 }
 
 // Answers what the mod reads beneath it, then fills its state the way a session does
 async function seed($: Engine, on: On): Promise<void> {
   mock.clock(on, { now: NOW })
-  on('session.usage', async () => ({
-    value: { startedAt: NOW, context: { window: 200_000 }, rateLimits: usage.limits, cost: { usd: 0.25 } },
-  }))
-  on('process.run', async () => ({
-    value: {
-      exitCode: 0,
-      stdout: JSON.stringify({ daily: history.days.map(day => ({ period: day.date, totalCost: day.usd })) }),
-      stderr: '',
-      isStdoutTruncated: false,
-      isStderrTruncated: false,
-    },
-  }))
-
+  mock.store(on, Object.fromEntries(days.map(day => [`day:${day.date}`, day.usd])))
   on('session.measure', async (_$, e) => ({ changed: e.changed }))
+  on('session.authorize', async () => ({ value: { handle: 'test', kind: 'bearer' as const } }))
+  on('http.fetch', async () => ({ value: { status: 200, ok: true, headers: {}, text: USAGE_BODY } }))
 
   await $.command.run({
     command: 'burn',
@@ -51,30 +43,24 @@ async function seed($: Engine, on: On): Promise<void> {
     origin: { kind: 'composer' },
     presentation: { isFullscreen: true, columns: 120 },
   })
-  await $.session.measure({ context: { window: 200_000 }, rateLimits: usage.limits, cost: { usd: 0.5 }, changed: ['cost'] })
+  // The first reading is the baseline, the second adds $0.25 to today
+  await $.session.measure(measure(0.5))
+  await $.session.measure(measure(0.75))
 }
 
 describe('format', () => {
-  test('reads both ccusage day shapes', async () => {
-    const days = parseDaily(JSON.stringify({ daily: [{ period: '2026-10-02', totalCost: 1.5 }, { date: '2026-10-01', totalCost: 2 }] }))
+  test('reads usage credits and hides them when off', async () => {
+    const credits = parseCredits(USAGE_BODY)
 
-    expect(days).toEqual([
-      { date: '2026-10-02', usd: 1.5 },
-      { date: '2026-10-01', usd: 2 },
-    ])
+    expect(credits).toEqual({ used: 12006, limit: 12000, currency: 'EUR', decimals: 2 })
+    expect(credits && creditsLabel(credits)).toBe('€120.06 / €120')
+    expect(parseCredits(JSON.stringify({ extra_usage: { is_enabled: false } }))).toBe(null)
+    expect(parseCredits(JSON.stringify({}))).toBe(null)
   })
 
-  test('counts session spend since the ccusage read only once', async () => {
-    const sum = totals(usage, history, NOW)
-
-    expect(sum.today).toBe(1.25)
-    expect(sum.month).toBe(3.25)
-    expect(sum.week).toBe(6.25)
-  })
-
-  test('fills the 7 days with zeros and reaches back past the month start', async () => {
-    expect(lastSevenDays(history.days, NOW).map(day => day.usd)).toEqual([0, 0, 0, 0, 3, 2, 1])
-    expect(sinceArg(NOW)).toBe('20260926')
+  test('sums today, the last 7 days and the month', async () => {
+    expect(totals(0.5, days, NOW)).toEqual({ session: 0.5, today: 1, week: 6, month: 3 })
+    expect(lastSevenDays(days, NOW).map(day => day.usd)).toEqual([0, 0, 0, 0, 3, 2, 1])
   })
 
   test('formats reset countdowns', async () => {
@@ -84,8 +70,25 @@ describe('format', () => {
   })
 })
 
+describe('recording', () => {
+  test('adds only the spend since the last measurement to today', async ($, on) => {
+    await seed($, on)
+    const ui = await $.ui.mount({
+      plugin: 'burn',
+      surface: 'terminal',
+      component: 'Pane',
+      requestId: 'burn',
+      props: { title: 'burn', isFocused: true, bodyColumns: 80, placement: 'dock', scroll: SCROLL, view: {} },
+    })
+
+    // Today was $1 in the store, plus $0.25 between the two measurements
+    expect(await ui.find({ type: 'Text', text: '≈$1.25' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '≈$6.25' })).toBeDefined()
+  })
+})
+
 describe('drawing', () => {
-  test('the band shows limits and spend on every surface', async ($, on) => {
+  test('the band shows limits, credits and session spend on every surface', async ($, on) => {
     await seed($, on)
 
     for (const surface of SURFACES) {
@@ -93,12 +96,13 @@ describe('drawing', () => {
         plugin: 'burn',
         surface,
         component: 'AbovePrompt',
-        props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 120, scroll: SCROLL, view: {} },
+        props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 140, scroll: SCROLL, view: {} },
       })
 
       expect(await ui.find({ type: 'Text', text: '83%' })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: /resets 3h47m/ })).toBeDefined()
-      expect(await ui.find({ type: 'Text', text: '$1.25 today' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: '€120.06 / €120' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: '≈$0.75 session' })).toBeDefined()
       await ui.unmount()
     }
   })

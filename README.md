@@ -1,40 +1,28 @@
 # burn
 
-A [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/overview) that shows your rate limits and spend above the prompt.
+A [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/overview) that shows your rate limits, usage credits and spend above the prompt.
 
 ```
-◔ 14% 5h · resets 1h7m   ◕ 83% 7d · resets 3h47m   $0.10  $4.20 today  $61.30 mo
+◑ 59% 5h · resets 7m   ◕ 81% 7d · resets 8h57m   ● €120.06 / €120 credits   ≈$3.27 session
 ```
 
-- **Band above the prompt**: 5 hour and weekly limit usage with a reset countdown, plus spend for this session, today and this month. The Desktop app draws the rings as SVG, the terminal as glyphs.
-- **`/burn`**: opens a pane with the limits, a bar chart of the last 7 days and the totals. `/burn refresh` re-reads the history.
+- **Band above the prompt**: 5 hour and weekly limit usage with a reset countdown, your usage credits for the month, and this session's cost. The Desktop app draws the rings as SVG, the terminal as glyphs.
+- **`/burn`**: opens a pane with the limits, credits, a bar chart of the last 7 days and the totals. `/burn refresh` reloads them.
 
 ## Install
 
-Requires Claude Code v2.1.287 or later, and [Bun](https://bun.sh) for `bunx`.
+Requires Claude Code v2.1.287 or later.
 
 ```
 /plugin marketplace add PickleBoxer/burn
 /plugin install burn@burn
 ```
 
-## How it works
+## Where the numbers come from
 
-- Rate limits and session cost come from Claude Code itself (`$.session.usage()`). Limits show after the first request, and only on a Pro or Max subscription.
-- Today, 7 day and month totals come from [ccusage](https://github.com/ryoppippi/ccusage), which reads your local transcripts. It runs when the session starts and every 10 minutes, and the current session's spend since then is added live.
-- On a subscription, spend is the API-equivalent cost, not what you're billed.
-
-## Configuration
-
-`ccusageCommand` (default `bunx ccusage@20.0.26`) is the command that runs ccusage, split on spaces. The Desktop app may not see your shell's `PATH`, so set an absolute path there if the band shows no history, for example `/opt/homebrew/bin/bunx ccusage@20.0.26`. Change it in `/config`, or in `~/.claude/settings.json`:
-
-```json
-{
-  "pluginConfigs": {
-    "burn@burn": { "ccusageCommand": "/opt/homebrew/bin/bunx ccusage@20.0.26" }
-  }
-}
-```
+- **Rate limits and session cost** come from Claude Code itself. Limits show after the first request, and only on a Pro or Max subscription.
+- **Usage credits** are the only billed figure. They come from the same endpoint `/status` reads, through Claude Code's own credential, which the mod never sees. That endpoint is internal, so if it changes the credits group just disappears.
+- **Today, 7 day and month (≈)** are API-equivalent cost, not your bill. burn records each session's cost per day on this machine, starting when you install it, so the chart fills in over the first week.
 
 ## Development
 

@@ -10,7 +10,7 @@
     {
       "name": "burn",
       "source": "./",
-      "description": "Rate limits and spend above the prompt, with a /burn pane for the last 7 days"
+      "description": "Rate limits, usage credits and spend above the prompt, with a /burn pane for the last 7 days"
     }
   ]
 }
