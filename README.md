@@ -2,6 +2,12 @@
 
 A [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/overview) that shows your rate limits, usage credits and spend above the prompt.
 
+In the Desktop app:
+
+![burn in the Claude Desktop app](docs/desktop.png)
+
+In the terminal:
+
 ```
 ◑ 59% 5h · resets 7m   ◕ 81% 7d · resets 8h57m   ● €120.06 / €120 credits   ≈$3.27 session
 ```
