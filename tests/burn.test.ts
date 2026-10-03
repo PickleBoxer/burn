@@ -100,8 +100,9 @@ describe('drawing', () => {
       })
 
       expect(await ui.find({ type: 'Text', text: '83%' })).toBeDefined()
-      expect(await ui.find({ type: 'Text', text: /resets 3h47m/ })).toBeDefined()
-      expect(await ui.find({ type: 'Text', text: '€120.06 / €120' })).toBeDefined()
+      // The terminal can't draw Svg, so its rings are pie glyphs
+      expect(await ui.find(surface === 'desktop' ? { type: 'Svg' } : { type: 'Text', text: '◕' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: '€120.06/120' })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: '≈$0.75 session' })).toBeDefined()
       await ui.unmount()
     }

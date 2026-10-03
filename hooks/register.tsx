@@ -299,7 +299,7 @@ export const register: Register = on => {
 
     // Svg draws only on Desktop, so the terminal gets a pie glyph instead
     const icon = (percent: number) =>
-      'Svg' in elements ? (
+      e.surface === 'desktop' && 'Svg' in elements ? (
         <elements.Svg source={ring(percent)} alt={`${percent}%`} width={20} height={20} />
       ) : (
         <Text color={level(percent)}>{glyph(percent)}</Text>
@@ -316,7 +316,7 @@ export const register: Register = on => {
               <Text bold>{limit.percentUsed}%</Text>
               <Text dimColor>
                 {limitLabel(limit.kind)}
-                {resets && !isCompact ? ` · resets ${resets}` : ''}
+                {resets && !isCompact ? ` ↻${resets}` : ''}
               </Text>
             </Box>
           )
@@ -324,8 +324,7 @@ export const register: Register = on => {
         {credits && (
           <Box key="credits" flexDirection="row" gap={1}>
             {icon(creditsPercent(credits))}
-            <Text bold>{creditsLabel(credits)}</Text>
-            {!isCompact && <Text dimColor>credits</Text>}
+            <Text bold>{creditsLabel(credits, true)}</Text>
           </Box>
         )}
         <Box key="spend" flexDirection="row" gap={1}>
