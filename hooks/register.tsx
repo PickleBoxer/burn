@@ -1,9 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionMeasureInput, SessionUsage } from 'claude-code'
 
-import type { Credits, Day, Usage } from '../types'
+import type { ContextRow, Credits, Day, Usage } from '../types'
 import {
   bar,
+  contextLevel,
   creditsLabel,
   creditsPercent,
   daysAgo,
@@ -15,6 +16,7 @@ import {
   money,
   parseCredits,
   resetsIn,
+  tokens,
   totals,
 } from './format'
 
@@ -24,6 +26,9 @@ const TICK_MS = 60 * 1000
 const KEEP_DAYS = 40
 const LABEL_COLUMNS = 10
 const PRICE_COLUMNS = 10
+const WARN_PERCENT = 85
+const ROW_COLUMNS = 18
+const TOKEN_COLUMNS = 8
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 
 const usageAtom = atom({ plugin: 'burn', key: 'usage' } as const, null)
@@ -31,6 +36,8 @@ const daysAtom = atom({ plugin: 'burn', key: 'days' } as const, [])
 const creditsAtom = atom({ plugin: 'burn', key: 'credits' } as const, null)
 const recordedAtom = atom({ plugin: 'burn', key: 'recordedUsd' } as const, null)
 const nowAtom = atom({ plugin: 'burn', key: 'now' } as const, 0)
+const breakdownAtom = atom({ plugin: 'burn', key: 'breakdown' } as const, null)
+const hasWarnedAtom = atom({ plugin: 'burn', key: 'hasWarned' } as const, false)
 
 const HEX = { green: '#4caf50', yellow: '#d9a520', red: '#e5534b' }
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -39,10 +46,15 @@ function toUsage(source: SessionUsage | SessionMeasureInput): Usage {
   return {
     limits: source.rateLimits.map(({ kind, percentUsed, resetsAt }) => ({ kind, percentUsed, resetsAt })),
     sessionUsd: source.cost?.usd ?? null,
+    context: {
+      tokens: source.context.tokens ?? null,
+      window: source.context.window,
+      percent: source.context.percent ?? null,
+    },
   }
 }
 
-function ring(percent: number): string {
+function ring(percent: number, color: keyof typeof HEX): string {
   const r = 8
   const length = 2 * Math.PI * r
   const filled = (Math.min(100, percent) / 100) * length
@@ -50,7 +62,7 @@ function ring(percent: number): string {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">` +
     `<circle cx="10" cy="10" r="${r}" fill="none" stroke="#444" stroke-width="2.5"/>` +
-    `<circle cx="10" cy="10" r="${r}" fill="none" stroke="${HEX[level(percent)]}" stroke-width="2.5" ` +
+    `<circle cx="10" cy="10" r="${r}" fill="none" stroke="${HEX[color]}" stroke-width="2.5" ` +
     `stroke-linecap="round" stroke-dasharray="${filled} ${length}" transform="rotate(-90 10 10)"/>` +
     `</svg>`
   )
@@ -135,6 +147,48 @@ async function loadCredits($: EngineInterface): Promise<void> {
   await update($, creditsAtom, () => credits)
 }
 
+// The /context rows, estimated locally, so it costs no request
+async function loadBreakdown($: EngineInterface): Promise<void> {
+  const { context } = await $.session.usage({ breakdown: 'summary' })
+  const rows: ContextRow[] = []
+
+  for (const category of context.breakdown?.categories ?? []) {
+    if (category.kind !== 'deferred' && category.tokens > 0) {
+      rows.push({ name: category.name, tokens: category.tokens, kind: category.kind })
+    }
+  }
+
+  await update($, breakdownAtom, () => rows)
+}
+
+// Warns once when the context nearly fills up, and again after it has been compacted
+async function warn($: EngineInterface, percent: number | null): Promise<void> {
+  const hasWarned = await read($, hasWarnedAtom)
+
+  if (percent === null) {
+    return
+  }
+
+  if (percent >= WARN_PERCENT && !hasWarned) {
+    await update($, hasWarnedAtom, () => true)
+    $.ui.toast(`Context is ${percent}% full. Run /compact, or press Compact in /burn.`)
+  } else if (percent < 50 && hasWarned) {
+    await update($, hasWarnedAtom, () => false)
+  }
+}
+
+async function compact($: EngineInterface): Promise<void> {
+  try {
+    const result = await $.session.compact()
+
+    if (result.skip) {
+      $.ui.toast(`Not compacted: ${result.skip}`)
+    }
+  } catch {
+    $.ui.toast("Can't compact while Claude is working")
+  }
+}
+
 async function refresh($: EngineInterface): Promise<void> {
   await loadDays($)
   await loadCredits($)
@@ -151,7 +205,12 @@ async function summary($: EngineInterface): Promise<string> {
     return `${glyph(limit.percentUsed)} ${limitLabel(limit.kind)} ${limit.percentUsed}%${resets ? ` (resets ${resets})` : ''}`
   })
 
+  const context = usage?.context.percent != null
+    ? [`${glyph(usage.context.percent)} ctx ${usage.context.percent}% (${tokens(usage.context.tokens ?? 0)}/${tokens(usage.context.window)})`]
+    : []
+
   return [
+    ...context,
     ...limits,
     ...(credits ? [`${glyph(creditsPercent(credits))} ${creditsLabel(credits)} credits`] : []),
     `session ${money(sum.session)}`,
@@ -189,6 +248,11 @@ export const register: Register = on => {
     const usage = toUsage(e)
     await update($, usageAtom, () => usage)
     await record($, usage.sessionUsd)
+    await warn($, usage.context.percent)
+
+    if (e.changed.includes('context')) {
+      await loadBreakdown($)
+    }
 
     return next(e)
   })
@@ -200,6 +264,7 @@ export const register: Register = on => {
       return { text: await summary($) }
     }
 
+    await loadBreakdown($)
     await $.ui.open({ id: PANE, title: 'burn', closeOnEscape: true })
 
     // Shown where nothing draws, such as the VS Code panel or claude -p
@@ -218,9 +283,43 @@ export const register: Register = on => {
     const max = Math.max(...days.map(day => day.usd), 0)
     const barWidth = Math.max(8, Math.min(40, e.props.bodyColumns - LABEL_COLUMNS - PRICE_COLUMNS - 2))
     const since = stored.map(day => day.date).sort()[0]
+    const context = usage?.context
+    const rows = (await read($, breakdownAtom)) ?? []
+    const rowBarWidth = Math.max(8, Math.min(40, e.props.bodyColumns - ROW_COLUMNS - TOKEN_COLUMNS - 2))
 
     return (
       <Box flexDirection="column" gap={1}>
+        {context && (
+          <Box flexDirection="column">
+            <Text bold>
+              Context{' '}
+              <Text dimColor>
+                {context.tokens === null ? 'no reading yet' : `${tokens(context.tokens)} / ${tokens(context.window)}`}
+              </Text>
+              {context.percent !== null && <Text color={contextLevel(context.percent)}> {context.percent}%</Text>}
+            </Text>
+            {rows.map(row => (
+              <Box key={row.name} flexDirection="row" gap={1}>
+                <Box width={ROW_COLUMNS} flexShrink={0}>
+                  <Text dimColor={row.kind !== 'used'} wrap="truncate">
+                    {row.name}
+                  </Text>
+                </Box>
+                <Box flexGrow={1} flexShrink={1} overflow="hidden">
+                  <Text color={row.kind === 'used' ? 'cyan' : undefined} dimColor={row.kind !== 'used'} wrap="truncate">
+                    {bar(row.tokens, context.window, rowBarWidth)}
+                  </Text>
+                </Box>
+                <Box width={TOKEN_COLUMNS} flexShrink={0} justifyContent="flex-end">
+                  <Text dimColor={row.kind !== 'used'} wrap="truncate">
+                    {tokens(row.tokens)}
+                  </Text>
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        )}
+
         <Box flexDirection="column">
           <Text bold>Limits</Text>
           {(usage?.limits ?? []).length === 0 && <Text dimColor>No reading yet (needs a subscription and one request)</Text>}
@@ -254,7 +353,7 @@ export const register: Register = on => {
                   {weekday(day.date)} {day.date.slice(5)}
                 </Text>
               </Box>
-              <Box flexGrow={1} flexShrink={1} overflow="hidden">
+              <Box key={`day-${day.date}`} flexGrow={1} flexShrink={1} overflow="hidden">
                 <Text color="green" wrap="truncate">
                   {bar(day.usd, max, barWidth)}
                 </Text>
@@ -275,6 +374,7 @@ export const register: Register = on => {
 
         <Box flexDirection="row" gap={2}>
           <Button key="refresh" label="Refresh" hotkey="r" onPress={() => void refresh($)} />
+          <Button key="compact" label="Compact" hotkey="c" onPress={() => void compact($)} />
           <Text dimColor>
             ≈ is API-equivalent cost, recorded by burn{since ? ` since ${since}` : ''}. Only credits are billed.
           </Text>
@@ -288,7 +388,7 @@ export const register: Register = on => {
     const credits = await read($, creditsAtom)
     const now = (await read($, nowAtom)) || (await $.clock.now())
 
-    if (e.props.hasSurvey || !usage || (usage.limits.length === 0 && usage.sessionUsd === null && !credits)) {
+    if (e.props.hasSurvey || !usage) {
       return next(e)
     }
 
@@ -298,15 +398,25 @@ export const register: Register = on => {
     const sum = totals(usage.sessionUsd, await read($, daysAtom), now)
 
     // Svg draws only on Desktop, so the terminal gets a pie glyph instead
-    const icon = (percent: number) =>
+    const icon = (percent: number, color = level(percent)) =>
       e.surface === 'desktop' && 'Svg' in elements ? (
-        <elements.Svg source={ring(percent)} alt={`${percent}%`} width={20} height={20} />
+        <elements.Svg source={ring(percent, color)} alt={`${percent}%`} width={20} height={20} />
       ) : (
-        <Text color={level(percent)}>{glyph(percent)}</Text>
+        <Text color={color}>{glyph(percent)}</Text>
       )
+    const context = usage.context
 
     return (
       <Box flexDirection="row" gap={3}>
+        {context.percent !== null && (
+          <Box key="context" flexDirection="row" gap={1}>
+            {icon(context.percent, contextLevel(context.percent))}
+            <Text bold>{context.percent}%</Text>
+            <Text dimColor>
+              ctx{!isCompact && context.tokens !== null ? ` ${tokens(context.tokens)}/${tokens(context.window)}` : ''}
+            </Text>
+          </Box>
+        )}
         {usage.limits.map(limit => {
           const resets = resetsIn(limit.resetsAt, now)
 

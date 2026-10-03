@@ -1,6 +1,6 @@
 # burn
 
-A [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/overview) that shows your rate limits, usage credits and spend above the prompt.
+A [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/overview) that shows your context, rate limits, usage credits and spend above the prompt.
 
 In the Desktop app:
 
@@ -9,11 +9,12 @@ In the Desktop app:
 In the terminal:
 
 ```
-◑ 59% 5h · resets 7m   ◕ 81% 7d · resets 8h57m   ● €120.06 / €120 credits   ≈$3.27 session
+◔ 31% ctx 62k/200k   ◑ 59% 5h ↻7m   ◕ 81% 7d ↻8h57m   ● €120.06/120   ≈$3.27 session
 ```
 
-- **Band above the prompt**: 5 hour and weekly limit usage with a reset countdown, your usage credits for the month, and this session's cost. The Desktop app draws the rings as SVG, the terminal as glyphs.
-- **`/burn`**: opens a pane with the limits, credits, a bar chart of the last 7 days and the totals. `/burn refresh` reloads them.
+- **Band above the prompt**: context window fill, 5 hour and weekly limit usage with a reset countdown, your usage credits for the month, and this session's cost. The Desktop app draws the rings as SVG, the terminal as glyphs.
+- **`/burn`**: opens a pane with what fills the context (as `/context` counts it), the limits, credits, a bar chart of the last 7 days and the totals. **Compact** (`c`) compacts the session, **Refresh** (`r`) reloads the figures, and `/burn refresh` does the same from the prompt.
+- **Context warning**: a toast once the context passes 85%, suggesting `/compact`.
 
 ## Install
 
@@ -26,7 +27,7 @@ Requires Claude Code v2.1.287 or later.
 
 ## Where the numbers come from
 
-- **Rate limits and session cost** come from Claude Code itself. Limits show after the first request, and only on a Pro or Max subscription.
+- **Context, rate limits and session cost** come from Claude Code itself. The context breakdown is estimated locally, so it costs no request. Limits show after the first request, and only on a Pro or Max subscription.
 - **Usage credits** are the only billed figure. They come from the same endpoint `/status` reads, through Claude Code's own credential, which the mod never sees. That endpoint is internal, so if it changes the credits group just disappears.
 - **Today, 7 day and month (≈)** are API-equivalent cost, not your bill. burn records each session's cost per day on this machine, starting when you install it, so the chart fills in over the first week.
 

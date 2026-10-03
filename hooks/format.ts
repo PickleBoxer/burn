@@ -104,6 +104,23 @@ export function level(percent: number): 'green' | 'yellow' | 'red' {
   return percent >= 50 ? 'yellow' : 'green'
 }
 
+// Context gets stricter thresholds, as answers get worse well before the window is full
+export function contextLevel(percent: number): 'green' | 'yellow' | 'red' {
+  if (percent >= 80) {
+    return 'red'
+  }
+
+  return percent >= 60 ? 'yellow' : 'green'
+}
+
+export function tokens(count: number): string {
+  if (count >= 1_000_000) {
+    return `${Number((count / 1_000_000).toFixed(1))}M`
+  }
+
+  return count >= 1000 ? `${Math.round(count / 1000)}k` : String(count)
+}
+
 export function glyph(percent: number): string {
   return ['○', '◔', '◑', '◕', '●'][Math.min(4, Math.round(percent / 25))] ?? '○'
 }

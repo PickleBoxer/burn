@@ -1,4 +1,4 @@
-import type { On } from 'claude-code'
+import type { On, SessionContextBreakdown } from 'claude-code'
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
@@ -25,9 +25,23 @@ const USAGE_BODY = JSON.stringify({
   extra_usage: { is_enabled: true, monthly_limit: 12000, used_credits: 12006, currency: 'EUR', decimal_places: 2 },
 })
 
-function measure(usd: number) {
-  return { context: { window: 200_000 }, rateLimits: limits, cost: { usd }, changed: ['cost' as const] }
+function measure(usd: number, percent = 31) {
+  return {
+    context: { window: 200_000, tokens: percent * 2000, percent },
+    rateLimits: limits,
+    cost: { usd },
+    changed: ['cost' as const, 'context' as const],
+  }
 }
+
+const BREAKDOWN = {
+  categories: [
+    { name: 'System prompt', tokens: 12_400, color: 'x', isDeferred: false, kind: 'used' as const },
+    { name: 'Messages', tokens: 38_300, color: 'x', isDeferred: false, kind: 'used' as const },
+    { name: 'Free space', tokens: 138_000, color: 'x', isDeferred: false, kind: 'free' as const },
+  ],
+  // Only the rows matter to burn
+} as unknown as SessionContextBreakdown
 
 // Answers what the mod reads beneath it, then fills its state the way a session does
 async function seed($: Engine, on: On): Promise<void> {
@@ -36,6 +50,14 @@ async function seed($: Engine, on: On): Promise<void> {
   on('session.measure', async (_$, e) => ({ changed: e.changed }))
   on('session.authorize', async () => ({ value: { handle: 'test', kind: 'bearer' as const } }))
   on('http.fetch', async () => ({ value: { status: 200, ok: true, headers: {}, text: USAGE_BODY } }))
+  on('session.usage', async () => ({
+    value: {
+      startedAt: NOW,
+      context: { window: 200_000, tokens: 62_000, percent: 31, breakdown: BREAKDOWN },
+      rateLimits: limits,
+      cost: { usd: 0.75 },
+    },
+  }))
 
   await $.command.run({
     command: 'burn',
@@ -87,6 +109,46 @@ describe('recording', () => {
   })
 })
 
+describe('context', () => {
+  test('warns once when the context passes 85%', async ($, on) => {
+    const toasts: string[] = []
+    on('ui.toast', async (_$, e) => {
+      toasts.push(e.text)
+
+      return { value: undefined }
+    })
+    await seed($, on)
+
+    await $.session.measure(measure(0.75, 86))
+    await $.session.measure(measure(0.75, 90))
+
+    expect(toasts).toHaveLength(1)
+    expect(toasts[0]).toMatch(/86% full/)
+  })
+
+  test('the Compact button compacts the session', async ($, on) => {
+    let compacted = 0
+    on('session.compact', async () => {
+      compacted += 1
+
+      return { messages: [] }
+    })
+    await seed($, on)
+    const ui = await $.ui.mount({
+      plugin: 'burn',
+      surface: 'terminal',
+      component: 'Pane',
+      requestId: 'burn',
+      props: { title: 'burn', isFocused: true, bodyColumns: 80, placement: 'dock', scroll: SCROLL, view: {} },
+    })
+
+    expect(await ui.find({ type: 'Text', text: 'System prompt' })).toBeDefined()
+    await ui.press({ key: 'compact' })
+
+    expect(compacted).toBe(1)
+  })
+})
+
 describe('drawing', () => {
   test('the band shows limits, credits and session spend on every surface', async ($, on) => {
     await seed($, on)
@@ -100,6 +162,7 @@ describe('drawing', () => {
       })
 
       expect(await ui.find({ type: 'Text', text: '83%' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: 'ctx 62k/200k' })).toBeDefined()
       // The terminal can't draw Svg, so its rings are pie glyphs
       expect(await ui.find(surface === 'desktop' ? { type: 'Svg' } : { type: 'Text', text: '◕' })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: '€120.06/120' })).toBeDefined()
@@ -120,7 +183,10 @@ describe('drawing', () => {
         props: { title: 'burn', isFocused: true, bodyColumns: 80, placement: 'dock', scroll: SCROLL, view: {} },
       })
 
-      expect(await ui.findAll({ type: 'Text', text: /^[█░]+$/ })).toHaveLength(7)
+      for (const day of lastSevenDays(days, NOW)) {
+        expect(await ui.find({ key: `day-${day.date}` })).toBeDefined()
+      }
+
       expect(await ui.find({ key: 'refresh' })).toBeDefined()
       await ui.unmount()
     }
