@@ -8,5 +8,17 @@
   "homepage": "https://github.com/PickleBoxer/burn",
   "repository": "https://github.com/PickleBoxer/burn",
   "license": "MIT",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "terminalIcons": {
+      "type": "string",
+      "title": "Terminal icons",
+      "description": "pie draws fill glyphs that work in any font. nerd draws Nerd Font icons, which need a Nerd Font in your terminal.",
+      "options": [
+        "pie",
+        "nerd"
+      ],
+      "default": "pie"
+    }
+  }
 }

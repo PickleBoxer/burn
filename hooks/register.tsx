@@ -58,6 +58,18 @@ function toUsage(source: SessionUsage | SessionMeasureInput): Usage {
 // What each band group measures, drawn as an icon inside Desktop's ring
 type Kind = 'context' | 'five_hour' | 'seven_day' | 'credits'
 
+// Nerd Font glyphs: md-brain, fa-clock, fa-calendar, and the currency signs
+const NERD: Record<Exclude<Kind, 'credits'>, string> = { context: '\u{F09D1}', five_hour: '\uF017', seven_day: '\uF073' }
+const NERD_CURRENCY: Record<string, string> = { EUR: '\uF153', USD: '\uF155', GBP: '\uF154' }
+
+function nerdIcon(kind: Kind | null, currency: string): string | null {
+  if (kind === 'credits') {
+    return NERD_CURRENCY[currency] ?? '\uF0D6'
+  }
+
+  return kind ? NERD[kind] : null
+}
+
 function kindOf(limitKind: string): Kind | null {
   return limitKind === 'five_hour' || limitKind === 'seven_day' ? limitKind : null
 }
@@ -247,7 +259,9 @@ async function summary($: EngineInterface): Promise<string> {
   ].join(' · ')
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  const isNerd = options.terminalIcons === 'nerd'
+
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'burn',
@@ -429,7 +443,7 @@ export const register: Register = on => {
       e.surface === 'desktop' && 'Svg' in elements ? (
         <elements.Svg source={ring(percent, color, kind, currencySymbol(credits?.currency ?? 'USD'))} alt={`${percent}%`} width={22} height={22} />
       ) : (
-        <Text color={color}>{glyph(percent)}</Text>
+        <Text color={color}>{(isNerd ? nerdIcon(kind, credits?.currency ?? 'USD') : null) ?? glyph(percent)}</Text>
       )
     const context = usage.context
 

@@ -31,6 +31,18 @@ Requires Claude Code v2.1.287 or later.
 - **Usage credits** are the only billed figure. They come from the same endpoint `/status` reads, through Claude Code's own credential, which the mod never sees. That endpoint is internal, so if it changes the credits group just disappears.
 - **Today, 7 day and month (≈)** are API-equivalent cost, not your bill. burn records each session's cost per day on this machine, starting when you install it, so the chart fills in over the first week.
 
+## Configuration
+
+`terminalIcons` picks the terminal's icons: `pie` (default) draws fill glyphs that work in any font, `nerd` draws [Nerd Font](https://www.nerdfonts.com) icons for context, the clock, the calendar and your currency. Change it in `/config`, or in `~/.claude/settings.json`:
+
+```json
+{
+  "pluginConfigs": {
+    "burn@burn": { "terminalIcons": "nerd" }
+  }
+}
+```
+
 ## Development
 
 ```

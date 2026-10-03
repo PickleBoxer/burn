@@ -171,6 +171,20 @@ describe('drawing', () => {
     }
   })
 
+  test('the band draws Nerd Font icons in the terminal when asked', { options: { terminalIcons: 'nerd' } }, async ($, on) => {
+    await seed($, on)
+    const ui = await $.ui.mount({
+      plugin: 'burn',
+      surface: 'terminal',
+      component: 'AbovePrompt',
+      props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 140, scroll: SCROLL, view: {} },
+    })
+
+    expect(await ui.find({ type: 'Text', text: '\uF073' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '\uF153' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '◕' })).toBeUndefined()
+  })
+
   test('the pane draws 7 bars and a refresh button on every surface', async ($, on) => {
     await seed($, on)
 
