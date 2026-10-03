@@ -60,6 +60,10 @@ export function money(usd: number | null): string {
 const SYMBOLS: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' }
 
 // `€120.06 / €120`, or `€120.06/120` where room is short
+export function currencySymbol(currency: string): string {
+  return SYMBOLS[currency] ?? currency
+}
+
 export function creditsLabel(credits: Credits, isShort = false): string {
   const symbol = SYMBOLS[credits.currency] ?? `${credits.currency} `
   const amount = (minor: number, digits: number) => `${symbol}${(minor / 10 ** credits.decimals).toFixed(digits)}`
