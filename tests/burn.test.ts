@@ -3,7 +3,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 import type { Limit } from '../types'
-import { creditsLabel, lastSevenDays, parseCredits, resetsIn, totals } from '../hooks/format'
+import { creditsLabel, lastSevenDays, modelName, parseCredits, resetsIn, totals } from '../hooks/format'
 
 const NOW = new Date(2026, 9, 2, 12, 0).getTime()
 const SURFACES = ['terminal', 'desktop'] as const
@@ -48,6 +48,13 @@ async function seed($: Engine, on: On): Promise<void> {
   mock.clock(on, { now: NOW })
   mock.store(on, Object.fromEntries(days.map(day => [`day:${day.date}`, day.usd])))
   on('session.measure', async (_$, e) => ({ changed: e.changed }))
+  on('session.model', async () => ({ value: 'claude-opus-5-5[1m]' }))
+  on('agent.list', async () => ({
+    value: [
+      { id: 'a1', description: 'find files', type: 'Explore', status: 'running' },
+      { id: 'a2', description: 'plan it', type: 'Plan', status: 'completed' },
+    ],
+  }))
   on('session.authorize', async () => ({ value: { handle: 'test', kind: 'bearer' as const } }))
   on('http.fetch', async () => ({ value: { status: 200, ok: true, headers: {}, text: USAGE_BODY } }))
   on('session.usage', async () => ({
@@ -89,6 +96,13 @@ describe('format', () => {
     expect(resetsIn(new Date(NOW + 67 * 60000).toISOString(), NOW)).toBe('1h7m')
     expect(resetsIn(new Date(NOW + 26 * 3600000).toISOString(), NOW)).toBe('1d2h')
     expect(resetsIn(undefined, NOW)).toBe(null)
+  })
+
+  test('shortens model ids', async () => {
+    expect(modelName('claude-opus-5-5[1m]')).toBe('Opus 5.5')
+    expect(modelName('claude-haiku-4-5-20251001')).toBe('Haiku 4.5')
+    expect(modelName('claude-sonnet-5-5', true)).toBe('Sonnet')
+    expect(modelName('Opus 5.5')).toBe('Opus 5.5')
   })
 })
 
@@ -167,6 +181,9 @@ describe('drawing', () => {
       expect(await ui.find(surface === 'desktop' ? { type: 'Svg' } : { type: 'Text', text: '◕' })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: '€120.06/120' })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: '≈$0.75 session' })).toBeDefined()
+      // Only the running subagent follows the model
+      expect(await ui.find({ type: 'Text', text: 'Opus 5.5' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: '› Explore' })).toBeDefined()
       await ui.unmount()
     }
   })

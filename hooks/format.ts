@@ -134,3 +134,18 @@ export function bar(usd: number, max: number, width: number): string {
 
   return '█'.repeat(filled) + '░'.repeat(width - filled)
 }
+
+// `claude-opus-5-5[1m]` reads as `Opus 5.5`, or `Opus` when space is short. Anything else shows as given.
+export function modelName(model: string, isShort = false): string {
+  const match = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?/.exec(model)
+
+  const [, name, major, minor] = match ?? []
+
+  if (!name) {
+    return model
+  }
+
+  const family = name.charAt(0).toUpperCase() + name.slice(1)
+
+  return isShort ? family : `${family} ${major}${minor ? `.${minor}` : ''}`
+}

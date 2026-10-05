@@ -7,6 +7,9 @@ export type Usage = { limits: Limit[]; sessionUsd: number | null; context: Conte
 // One row of the /context breakdown
 export type ContextRow = { name: string; tokens: number; kind: 'used' | 'free' | 'buffer' }
 
+// The main loop's model and the types of the subagents running now
+export type Agent = { model: string; subagents: string[] }
+
 export type Day = { date: string; usd: number }
 
 // Usage credits, in minor units such as cents
@@ -24,6 +27,7 @@ declare module 'claude-code' {
       breakdown: ContextRow[] | null
       // Whether this session already warned that the context is nearly full
       hasWarned: boolean
+      agent: Agent | null
     }
   }
 }

@@ -14,6 +14,7 @@ import {
   level,
   limitLabel,
   localDate,
+  modelName,
   money,
   parseCredits,
   resetsIn,
@@ -39,6 +40,7 @@ const recordedAtom = atom({ plugin: 'burn', key: 'recordedUsd' } as const, null)
 const nowAtom = atom({ plugin: 'burn', key: 'now' } as const, 0)
 const breakdownAtom = atom({ plugin: 'burn', key: 'breakdown' } as const, null)
 const hasWarnedAtom = atom({ plugin: 'burn', key: 'hasWarned' } as const, false)
+const agentAtom = atom({ plugin: 'burn', key: 'agent' } as const, null)
 
 const HEX = { green: '#4caf50', yellow: '#d9a520', red: '#e5534b' }
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -57,6 +59,9 @@ function toUsage(source: SessionUsage | SessionMeasureInput): Usage {
 
 // What each band group measures, drawn as an icon inside Desktop's ring
 type Kind = 'context' | 'five_hour' | 'seven_day' | 'credits'
+
+// Nerd Font md-robot, shown before the model
+const NERD_AGENT = '\u{F06A9}'
 
 // Nerd Font glyphs: md-brain, fa-clock, fa-calendar, and the currency signs
 const NERD: Record<Exclude<Kind, 'credits'>, string> = { context: '\u{F09D1}', five_hour: '\uF017', seven_day: '\uF073' }
@@ -216,6 +221,17 @@ async function warn($: EngineInterface, percent: number | null): Promise<void> {
   }
 }
 
+// The main loop's model and the subagents running under it. No event says when one ends,
+// so measurements and spawns re-read the list.
+async function loadAgent($: EngineInterface): Promise<void> {
+  const model = await $.session.model()
+  const subagents = (await $.agent.list())
+    .filter(agent => agent.status === 'running')
+    .map(agent => agent.type)
+
+  await update($, agentAtom, () => ({ model, subagents: [...new Set(subagents)] }))
+}
+
 async function compact($: EngineInterface): Promise<void> {
   try {
     const result = await $.session.compact()
@@ -278,6 +294,7 @@ export const register: Register = (on, options) => {
     }
 
     await loadDays($)
+    await loadAgent($)
     void loadCredits($)
     $.clock.every(REFRESH_MS, () => void refresh($))
     $.clock.every(TICK_MS, () => void tick($))
@@ -290,12 +307,20 @@ export const register: Register = (on, options) => {
     await update($, usageAtom, () => usage)
     await record($, usage.sessionUsd)
     await warn($, usage.context.percent)
+    await loadAgent($)
 
     if (e.changed.includes('context')) {
       await loadBreakdown($)
     }
 
     return next(e)
+  })
+
+  on('agent.spawn', async ($, e, next) => {
+    const result = await next(e)
+    await loadAgent($)
+
+    return result
   })
 
   on('command.run', { command: 'burn' }, async ($, e) => {
@@ -433,6 +458,7 @@ export const register: Register = (on, options) => {
       return next(e)
     }
 
+    const agent = await read($, agentAtom)
     const elements = $.ui.resolve(e)
     const { Box, Text } = elements
     const isCompact = e.props.bodyColumns < 100
@@ -448,7 +474,14 @@ export const register: Register = (on, options) => {
     const context = usage.context
 
     return (
-      <Box flexDirection="row" gap={3}>
+      <Box flexDirection="row" gap={3} paddingLeft={1}>
+        {agent && (
+          <Box key="agent" flexDirection="row" gap={1}>
+            {isNerd && e.surface !== 'desktop' && <Text color="magenta">{NERD_AGENT}</Text>}
+            <Text bold>{modelName(agent.model, isCompact)}</Text>
+            {agent.subagents.length > 0 && <Text dimColor>› {agent.subagents.join(', ')}</Text>}
+          </Box>
+        )}
         {context.percent !== null && (
           <Box key="context" flexDirection="row" gap={1}>
             {icon(context.percent, 'context', contextLevel(context.percent))}
