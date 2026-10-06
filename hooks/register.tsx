@@ -472,49 +472,53 @@ export const register: Register = (on, options) => {
         <Text color={color}>{(isNerd ? nerdIcon(kind, credits?.currency ?? 'USD') : null) ?? glyph(percent)}</Text>
       )
     const context = usage.context
+    const below = await next(e)
 
     return (
-      <Box flexDirection="row" gap={3} paddingLeft={1}>
-        {agent && (
-          <Box key="agent" flexDirection="row" gap={1}>
-            {isNerd && e.surface !== 'desktop' && <Text color="magenta">{NERD_AGENT}</Text>}
-            <Text bold>{modelName(agent.model, isCompact)}</Text>
-            {agent.subagents.length > 0 && <Text dimColor>› {agent.subagents.join(', ')}</Text>}
-          </Box>
-        )}
-        {context.percent !== null && (
-          <Box key="context" flexDirection="row" gap={1}>
-            {icon(context.percent, 'context', contextLevel(context.percent))}
-            <Text bold>{context.percent}%</Text>
-            <Text dimColor>
-              ctx{!isCompact && context.tokens !== null ? ` ${tokens(context.tokens)}/${tokens(context.window)}` : ''}
-            </Text>
-          </Box>
-        )}
-        {usage.limits.map(limit => {
-          const resets = resetsIn(limit.resetsAt, now)
-
-          return (
-            <Box key={limit.kind} flexDirection="row" gap={1}>
-              {icon(limit.percentUsed, kindOf(limit.kind))}
-              <Text bold>{limit.percentUsed}%</Text>
+      <Box flexDirection="column">
+        <Box flexDirection="row" gap={3} paddingLeft={1}>
+          {agent && (
+            <Box key="agent" flexDirection="row" gap={1}>
+              {isNerd && e.surface !== 'desktop' && <Text color="magenta">{NERD_AGENT}</Text>}
+              <Text bold>{modelName(agent.model, isCompact)}</Text>
+              {agent.subagents.length > 0 && <Text dimColor>› {agent.subagents.join(', ')}</Text>}
+            </Box>
+          )}
+          {context.percent !== null && (
+            <Box key="context" flexDirection="row" gap={1}>
+              {icon(context.percent, 'context', contextLevel(context.percent))}
+              <Text bold>{context.percent}%</Text>
               <Text dimColor>
-                {limitLabel(limit.kind)}
-                {resets && !isCompact ? ` ↻${resets}` : ''}
+                ctx{!isCompact && context.tokens !== null ? ` ${tokens(context.tokens)}/${tokens(context.window)}` : ''}
               </Text>
             </Box>
-          )
-        })}
-        {credits && (
-          <Box key="credits" flexDirection="row" gap={1}>
-            {icon(creditsPercent(credits), 'credits')}
-            <Text bold>{creditsLabel(credits, true)}</Text>
+          )}
+          {usage.limits.map(limit => {
+            const resets = resetsIn(limit.resetsAt, now)
+
+            return (
+              <Box key={limit.kind} flexDirection="row" gap={1}>
+                {icon(limit.percentUsed, kindOf(limit.kind))}
+                <Text bold>{limit.percentUsed}%</Text>
+                <Text dimColor>
+                  {limitLabel(limit.kind)}
+                  {resets && !isCompact ? ` ↻${resets}` : ''}
+                </Text>
+              </Box>
+            )
+          })}
+          {credits && (
+            <Box key="credits" flexDirection="row" gap={1}>
+              {icon(creditsPercent(credits), 'credits')}
+              <Text bold>{creditsLabel(credits, true)}</Text>
+            </Box>
+          )}
+          <Box key="spend" flexDirection="row" gap={1}>
+            <Text dimColor>{money(sum.session)} session</Text>
+            {!credits && !isCompact && <Text dimColor>{money(sum.today)} today</Text>}
           </Box>
-        )}
-        <Box key="spend" flexDirection="row" gap={1}>
-          <Text dimColor>{money(sum.session)} session</Text>
-          {!credits && !isCompact && <Text dimColor>{money(sum.today)} today</Text>}
         </Box>
+        {below}
       </Box>
     )
   })
