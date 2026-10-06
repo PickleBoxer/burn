@@ -28,6 +28,8 @@ declare module 'claude-code' {
       // Whether this session already warned that the context is nearly full
       hasWarned: boolean
       agent: Agent | null
+      // Names of the skills loaded this session, in the order they loaded
+      skills: string[]
     }
   }
 }

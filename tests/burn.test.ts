@@ -1,4 +1,4 @@
-import type { On, SessionContextBreakdown } from 'claude-code'
+import type { On, RenderElement, SessionContextBreakdown } from 'claude-code'
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
@@ -54,6 +54,16 @@ async function seed($: Engine, on: On): Promise<void> {
       { id: 'a1', description: 'find files', type: 'Explore', status: 'running' },
       { id: 'a2', description: 'plan it', type: 'Plan', status: 'completed' },
     ],
+  }))
+  // Nothing to draw or expand beneath burn
+  on('ui.render', async ($, e) => {
+    const { Box } = $.ui.resolve(e)
+
+    return h(Box, {}) as RenderElement
+  })
+  on('skill.prompt', async (_$, e) => ({ text: e.text }))
+  on('session.messages', async () => ({
+    value: [{ role: 'assistant' as const, text: '', toolUses: [{ tool_use_id: 't1', tool: 'Skill', input: { skill: 'tdd' } }] }],
   }))
   on('session.authorize', async () => ({ value: { handle: 'test', kind: 'bearer' as const } }))
   on('http.fetch', async () => ({ value: { status: 200, ok: true, headers: {}, text: USAGE_BODY } }))
@@ -186,6 +196,25 @@ describe('drawing', () => {
       expect(await ui.find({ type: 'Text', text: '› Explore' })).toBeDefined()
       await ui.unmount()
     }
+  })
+
+  test('the band lists loaded skills on a row of their own', async ($, on) => {
+    on('command.register', async (_$, e) => ({ value: { command: e.name } }))
+    on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+    await seed($, on)
+    // A resumed session reads the skills it loaded before from the transcript
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await $.skill.prompt({ skill: 'spatie-guidelines', text: '' })
+    await $.skill.prompt({ skill: 'tdd', text: '' })
+    const ui = await $.ui.mount({
+      plugin: 'burn',
+      surface: 'terminal',
+      component: 'AbovePrompt',
+      props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 140, scroll: SCROLL, view: {} },
+    })
+
+    // tdd came from the transcript, so it is listed once and first
+    expect(await ui.find({ type: 'Text', text: 'tdd, spatie-guidelines' })).toBeDefined()
   })
 
   test('the band draws Nerd Font icons in the terminal when asked', { options: { terminalIcons: 'nerd' } }, async ($, on) => {

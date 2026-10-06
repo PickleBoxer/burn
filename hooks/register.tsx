@@ -41,6 +41,7 @@ const nowAtom = atom({ plugin: 'burn', key: 'now' } as const, 0)
 const breakdownAtom = atom({ plugin: 'burn', key: 'breakdown' } as const, null)
 const hasWarnedAtom = atom({ plugin: 'burn', key: 'hasWarned' } as const, false)
 const agentAtom = atom({ plugin: 'burn', key: 'agent' } as const, null)
+const skillsAtom = atom({ plugin: 'burn', key: 'skills' } as const, [])
 
 const HEX = { green: '#4caf50', yellow: '#d9a520', red: '#e5534b' }
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -62,6 +63,9 @@ type Kind = 'context' | 'five_hour' | 'seven_day' | 'credits'
 
 // Nerd Font md-robot, shown before the model
 const NERD_AGENT = '\u{F06A9}'
+
+// Nerd Font md-flash, shown before the loaded skills
+const NERD_SKILLS = '\u{F0241}'
 
 // Nerd Font glyphs: md-brain, fa-clock, fa-calendar, and the currency signs
 const NERD: Record<Exclude<Kind, 'credits'>, string> = { context: '\u{F09D1}', five_hour: '\uF017', seven_day: '\uF073' }
@@ -232,6 +236,27 @@ async function loadAgent($: EngineInterface): Promise<void> {
   await update($, agentAtom, () => ({ model, subagents: [...new Set(subagents)] }))
 }
 
+async function addSkills($: EngineInterface, names: string[]): Promise<void> {
+  await update($, skillsAtom, skills => [...new Set([...skills, ...names])])
+}
+
+// A resumed session starts with no skills, so read the Skill tool calls it made.
+// Skills typed as /name don't show up as tool calls and are missed here.
+async function loadSkills($: EngineInterface): Promise<void> {
+  const messages = await $.session.messages()
+
+  if (!Array.isArray(messages)) {
+    return
+  }
+
+  const names = messages
+    .flatMap(message => message.toolUses)
+    .filter(use => use.tool === 'Skill' && typeof use.input.skill === 'string')
+    .map(use => use.input.skill as string)
+
+  await addSkills($, names)
+}
+
 async function compact($: EngineInterface): Promise<void> {
   try {
     const result = await $.session.compact()
@@ -295,6 +320,7 @@ export const register: Register = (on, options) => {
 
     await loadDays($)
     await loadAgent($)
+    await loadSkills($)
     void loadCredits($)
     $.clock.every(REFRESH_MS, () => void refresh($))
     $.clock.every(TICK_MS, () => void tick($))
@@ -319,6 +345,14 @@ export const register: Register = (on, options) => {
   on('agent.spawn', async ($, e, next) => {
     const result = await next(e)
     await loadAgent($)
+
+    return result
+  })
+
+  // Fires for /name, the Skill tool and preloads alike
+  on('skill.prompt', async ($, e, next) => {
+    const result = await next(e)
+    await addSkills($, [e.skill])
 
     return result
   })
@@ -459,6 +493,7 @@ export const register: Register = (on, options) => {
     }
 
     const agent = await read($, agentAtom)
+    const skills = await read($, skillsAtom)
     const elements = $.ui.resolve(e)
     const { Box, Text } = elements
     const isCompact = e.props.bodyColumns < 100
@@ -518,6 +553,14 @@ export const register: Register = (on, options) => {
             {!credits && !isCompact && <Text dimColor>{money(sum.today)} today</Text>}
           </Box>
         </Box>
+        {skills.length > 0 && (
+          <Box key="skills" flexDirection="row" gap={1} paddingLeft={1}>
+            {isNerd && e.surface !== 'desktop' ? <Text color="yellow">{NERD_SKILLS}</Text> : <Text dimColor>skills</Text>}
+            <Text dimColor wrap="truncate">
+              {skills.join(', ')}
+            </Text>
+          </Box>
+        )}
         {below}
       </Box>
     )
