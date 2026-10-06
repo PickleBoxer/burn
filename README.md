@@ -21,8 +21,8 @@ In the terminal:
 Requires Claude Code v2.1.287 or later.
 
 ```
-/plugin marketplace add PickleBoxer/burn
-/plugin install burn@burn
+/plugin marketplace add PickleBoxer/claude-plugins
+/plugin install burn@pickleboxer
 ```
 
 ## Where the numbers come from
@@ -38,7 +38,7 @@ Requires Claude Code v2.1.287 or later.
 ```json
 {
   "pluginConfigs": {
-    "burn@burn": { "terminalIcons": "nerd" }
+    "burn@pickleboxer": { "terminalIcons": "nerd" }
   }
 }
 ```
