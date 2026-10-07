@@ -10,10 +10,9 @@ export type ContextRow = { name: string; tokens: number; kind: 'used' | 'free' |
 // The main loop's model and the types of the subagents running now
 export type Agent = { model: string; subagents: string[] }
 
-// A skill loaded this session: typed as /name, or invoked by Claude through the Skill tool.
-// agent is the subagent type that loaded it, null for the main loop. at is null when it came
-// from a resumed transcript.
-export type Skill = { name: string; how: 'typed' | 'claude'; agent: string | null; at: number | null }
+// A skill loaded this session. agent is the subagent type that loaded it, null for the main
+// loop. at is null when it came from a resumed transcript.
+export type Skill = { name: string; agent: string | null; at: number | null }
 
 export type Day = { date: string; usd: number }
 

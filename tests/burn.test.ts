@@ -71,6 +71,7 @@ async function seed($: Engine, on: On): Promise<void> {
   }))
   on('command.run', async () => ({ text: '' }))
   on('tool.call', { tool: 'Skill' }, async () => ({ result: { success: true } as never }))
+  on('tool.call', { tool: 'Read' }, async () => ({ result: { type: 'text' } as never }))
   on('session.messages', async () => ({
     value: [{ role: 'assistant' as const, text: '', toolUses: [{ tool_use_id: 't1', tool: 'Skill', input: { skill: 'tdd' } }] }],
   }))
@@ -230,7 +231,7 @@ describe('drawing', () => {
     })
 
     // Built-ins and code-registered commands aren't skills, and tdd is listed once, where it first loaded
-    expect(await band.find({ type: 'Text', text: 'tdd  /commit  /probe:pang  grilling   › Explore: pong' })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: 'tdd  commit  probe:pang  grilling   › Explore: pong' })).toBeDefined()
 
     const pane = await $.ui.mount({
       plugin: 'burn',
@@ -243,6 +244,31 @@ describe('drawing', () => {
     expect(await pane.find({ key: 'skill-main-commit' })).toBeDefined()
     expect(await pane.find({ key: 'skill-Explore-pong' })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: 'resumed' })).toBeDefined()
+  })
+
+  test('a skill whose SKILL.md Claude read is listed', async ($, on) => {
+    await seed($, on)
+    await $.tool.call({ tool: 'Read', file_path: '/u/.claude/plugins/cache/pickleboxer/pstack/0.1.0/skills/how/SKILL.md' })
+    await $.tool.call({ tool: 'Read', file_path: '/u/project/README.md' })
+    const band = await $.ui.mount({
+      plugin: 'burn',
+      surface: 'terminal',
+      component: 'AbovePrompt',
+      props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 140, scroll: SCROLL, view: {} },
+    })
+
+    // Exactly how: the README read isn't a skill
+    expect(await band.find({ type: 'Text', text: 'how' })).toBeDefined()
+
+    const pane = await $.ui.mount({
+      plugin: 'burn',
+      surface: 'terminal',
+      component: 'Pane',
+      requestId: 'burn',
+      props: { title: 'burn', isFocused: true, bodyColumns: 80, placement: 'dock', scroll: SCROLL, view: {} },
+    })
+
+    expect(await pane.find({ key: 'skill-main-how' })).toBeDefined()
   })
 
   test('a failed Skill call is not listed', async ($, on) => {

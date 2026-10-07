@@ -19,7 +19,7 @@ import {
   money,
   parseCredits,
   resetsIn,
-  skillLabel,
+  skillFromPath,
   tokens,
   totals,
 } from './format'
@@ -33,7 +33,6 @@ const PRICE_COLUMNS = 10
 const WARN_PERCENT = 85
 const ROW_COLUMNS = 18
 const TOKEN_COLUMNS = 8
-const SKILL_COLUMNS = 7
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 
 const usageAtom = atom({ plugin: 'burn', key: 'usage' } as const, null)
@@ -267,7 +266,7 @@ async function agentType($: EngineInterface, agentId: string | undefined): Promi
   return (await $.agent.list()).find(agent => agent.id === agentId)?.type ?? 'subagent'
 }
 
-// A resumed session starts with no skills, so read the Skill tool calls it made.
+// A resumed session starts with no skills, so read the Skill tool calls and SKILL.md reads it made.
 // Skills typed as /name don't show up as tool calls and are missed here.
 async function loadSkills($: EngineInterface): Promise<void> {
   const messages = await $.session.messages()
@@ -278,17 +277,24 @@ async function loadSkills($: EngineInterface): Promise<void> {
 
   const skills = messages
     .flatMap(message => message.toolUses)
-    .filter(use => use.tool === 'Skill' && typeof use.input.skill === 'string')
-    .map((use): Skill => ({ name: use.input.skill as string, how: 'claude', agent: null, at: null }))
+    .flatMap((use): Skill[] => {
+      if (use.tool === 'Skill' && typeof use.input.skill === 'string') {
+        return [{ name: use.input.skill, agent: null, at: null }]
+      }
+
+      const name = use.tool === 'Read' && typeof use.input.file_path === 'string' ? skillFromPath(use.input.file_path) : null
+
+      return name === null ? [] : [{ name, agent: null, at: null }]
+    })
 
   await addSkills($, skills)
 }
 
-// The main loop's skills, then each subagent's: `/commit  tdd   › Explore: pong`
+// The main loop's skills, then each subagent's: `commit  tdd   › Explore: pong`
 function skillsLine(skills: Skill[]): string {
-  const main = skills.filter(skill => skill.agent === null).map(skillLabel)
+  const main = skills.filter(skill => skill.agent === null).map(skill => skill.name)
   const agents = [...new Set(skills.flatMap(skill => (skill.agent === null ? [] : [skill.agent])))].map(
-    agent => `› ${agent}: ${skills.filter(skill => skill.agent === agent).map(skillLabel).join('  ')}`,
+    agent => `› ${agent}: ${skills.filter(skill => skill.agent === agent).map(skill => skill.name).join('  ')}`,
   )
 
   return [main.join('  '), ...agents].filter(Boolean).join('   ')
@@ -388,12 +394,13 @@ export const register: Register = (on, options) => {
 
   // skill.prompt would cover every load, but the built-in security plugin routes it past
   // the user tier, so typed skills are read from command.run and Claude's from the Skill tool.
-  // Preloads into a subagent's frontmatter show in neither and are missed.
+  // A skill loaded by reading its SKILL.md is read from the Read tool; reads through Bash stay
+  // invisible. Preloads into a subagent's frontmatter show in none of these and are missed.
   on('command.run', async ($, e, next) => {
     const result = await next(e)
 
     if (await isSkillCommand($, e.command)) {
-      await addSkills($, [{ name: e.command, how: 'typed', agent: null, at: await $.clock.now() }])
+      await addSkills($, [{ name: e.command, agent: null, at: await $.clock.now() }])
     }
 
     return result
@@ -403,7 +410,18 @@ export const register: Register = (on, options) => {
     const result = await next(e)
 
     if (!result.deny && !result.isError && typeof e.skill === 'string') {
-      await addSkills($, [{ name: e.skill, how: 'claude', agent: await agentType($, e.agentId), at: await $.clock.now() }])
+      await addSkills($, [{ name: e.skill, agent: await agentType($, e.agentId), at: await $.clock.now() }])
+    }
+
+    return result
+  })
+
+  on('tool.call', { tool: 'Read' }, async ($, e, next) => {
+    const result = await next(e)
+    const name = typeof e.file_path === 'string' ? skillFromPath(e.file_path) : null
+
+    if (!result.deny && !result.isError && name !== null) {
+      await addSkills($, [{ name, agent: await agentType($, e.agentId), at: await $.clock.now() }])
     }
 
     return result
@@ -479,10 +497,7 @@ export const register: Register = (on, options) => {
             {skills.map(skill => (
               <Box key={`skill-${skill.agent ?? 'main'}-${skill.name}`} flexDirection="row" gap={1}>
                 <Box width={ROW_COLUMNS} flexShrink={0}>
-                  <Text wrap="truncate">{skillLabel(skill)}</Text>
-                </Box>
-                <Box width={SKILL_COLUMNS} flexShrink={0}>
-                  <Text dimColor>{skill.how === 'typed' ? 'typed' : 'Claude'}</Text>
+                  <Text wrap="truncate">{skill.name}</Text>
                 </Box>
                 <Box width={ROW_COLUMNS} flexShrink={0}>
                   <Text dimColor wrap="truncate">

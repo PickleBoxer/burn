@@ -157,7 +157,7 @@ export function clockTime(ms: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-// A typed skill reads as `/commit`, one Claude invoked as `commit`
-export function skillLabel(skill: Skill): string {
-  return skill.how === 'typed' ? `/${skill.name}` : skill.name
+// The skill a path loads when Claude reads it: skills/<name>/SKILL.md, on either separator
+export function skillFromPath(path: string): string | null {
+  return path.match(/[\\/]skills[\\/]([^\\/]+)[\\/]SKILL\.md$/)?.[1] ?? null
 }
