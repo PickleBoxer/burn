@@ -164,7 +164,8 @@ describe('context', () => {
     on('session.compact', async () => {
       compacted += 1
 
-      return { messages: [] }
+      // A compaction leaves at least the summary behind
+      return { messages: [{ role: 'user' as const, text: 'Summary of the conversation', toolUses: [] }] }
     })
     await seed($, on)
     const ui = await $.ui.mount({
