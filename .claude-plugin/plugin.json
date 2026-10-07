@@ -1,6 +1,6 @@
 {
   "name": "burn",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Rate limits, usage credits and spend above the prompt, with a /burn pane for the last 7 days",
   "author": {
     "name": "PickleBoxer"
