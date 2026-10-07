@@ -10,6 +10,11 @@ export type ContextRow = { name: string; tokens: number; kind: 'used' | 'free' |
 // The main loop's model and the types of the subagents running now
 export type Agent = { model: string; subagents: string[] }
 
+// A skill loaded this session: typed as /name, or invoked by Claude through the Skill tool.
+// agent is the subagent type that loaded it, null for the main loop. at is null when it came
+// from a resumed transcript.
+export type Skill = { name: string; how: 'typed' | 'claude'; agent: string | null; at: number | null }
+
 export type Day = { date: string; usd: number }
 
 // Usage credits, in minor units such as cents
@@ -28,8 +33,8 @@ declare module 'claude-code' {
       // Whether this session already warned that the context is nearly full
       hasWarned: boolean
       agent: Agent | null
-      // Names of the skills loaded this session, in the order they loaded
-      skills: string[]
+      // The skills loaded this session, in the order they loaded
+      skills: Skill[]
     }
   }
 }

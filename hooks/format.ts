@@ -1,4 +1,4 @@
-import type { Credits, Day } from '../types'
+import type { Credits, Day, Skill } from '../types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -148,4 +148,16 @@ export function modelName(model: string, isShort = false): string {
   const family = name.charAt(0).toUpperCase() + name.slice(1)
 
   return isShort ? family : `${family} ${major}${minor ? `.${minor}` : ''}`
+}
+
+// `14:05` in local time
+export function clockTime(ms: number): string {
+  const d = new Date(ms)
+
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+// A typed skill reads as `/commit`, one Claude invoked as `commit`
+export function skillLabel(skill: Skill): string {
+  return skill.how === 'typed' ? `/${skill.name}` : skill.name
 }

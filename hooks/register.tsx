@@ -1,9 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionMeasureInput, SessionUsage } from 'claude-code'
 
-import type { ContextRow, Credits, Day, Usage } from '../types'
+import type { ContextRow, Credits, Day, Skill, Usage } from '../types'
 import {
   bar,
+  clockTime,
   contextLevel,
   creditsLabel,
   creditsPercent,
@@ -18,6 +19,7 @@ import {
   money,
   parseCredits,
   resetsIn,
+  skillLabel,
   tokens,
   totals,
 } from './format'
@@ -31,6 +33,7 @@ const PRICE_COLUMNS = 10
 const WARN_PERCENT = 85
 const ROW_COLUMNS = 18
 const TOKEN_COLUMNS = 8
+const SKILL_COLUMNS = 7
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 
 const usageAtom = atom({ plugin: 'burn', key: 'usage' } as const, null)
@@ -236,8 +239,32 @@ async function loadAgent($: EngineInterface): Promise<void> {
   await update($, agentAtom, () => ({ model, subagents: [...new Set(subagents)] }))
 }
 
-async function addSkills($: EngineInterface, names: string[]): Promise<void> {
-  await update($, skillsAtom, skills => [...new Set([...skills, ...names])])
+// The first load of a skill in each loop is the one kept
+async function addSkills($: EngineInterface, added: Skill[]): Promise<void> {
+  await update($, skillsAtom, skills => [
+    ...skills,
+    ...added.filter(
+      (skill, i) =>
+        !skills.some(known => known.name === skill.name && known.agent === skill.agent) &&
+        added.findIndex(other => other.name === skill.name && other.agent === skill.agent) === i,
+    ),
+  ])
+}
+
+// Skills, legacy .claude/commands and plugin skills (namespaced plugin:name) expand into a
+// prompt. Built-ins, MCP prompts and commands a plugin registers in code (/burn) don't.
+async function isSkillCommand($: EngineInterface, name: string): Promise<boolean> {
+  const command = (await $.command.list()).find(command => command.name === name)
+
+  return command?.source === 'user' || (command?.source === 'plugin' && command.name.includes(':'))
+}
+
+async function agentType($: EngineInterface, agentId: string | undefined): Promise<string | null> {
+  if (agentId === undefined) {
+    return null
+  }
+
+  return (await $.agent.list()).find(agent => agent.id === agentId)?.type ?? 'subagent'
 }
 
 // A resumed session starts with no skills, so read the Skill tool calls it made.
@@ -249,12 +276,22 @@ async function loadSkills($: EngineInterface): Promise<void> {
     return
   }
 
-  const names = messages
+  const skills = messages
     .flatMap(message => message.toolUses)
     .filter(use => use.tool === 'Skill' && typeof use.input.skill === 'string')
-    .map(use => use.input.skill as string)
+    .map((use): Skill => ({ name: use.input.skill as string, how: 'claude', agent: null, at: null }))
 
-  await addSkills($, names)
+  await addSkills($, skills)
+}
+
+// The main loop's skills, then each subagent's: `/commit  tdd   › Explore: pong`
+function skillsLine(skills: Skill[]): string {
+  const main = skills.filter(skill => skill.agent === null).map(skillLabel)
+  const agents = [...new Set(skills.flatMap(skill => (skill.agent === null ? [] : [skill.agent])))].map(
+    agent => `› ${agent}: ${skills.filter(skill => skill.agent === agent).map(skillLabel).join('  ')}`,
+  )
+
+  return [main.join('  '), ...agents].filter(Boolean).join('   ')
 }
 
 async function compact($: EngineInterface): Promise<void> {
@@ -349,10 +386,25 @@ export const register: Register = (on, options) => {
     return result
   })
 
-  // Fires for /name, the Skill tool and preloads alike
-  on('skill.prompt', async ($, e, next) => {
+  // skill.prompt would cover every load, but the built-in security plugin routes it past
+  // the user tier, so typed skills are read from command.run and Claude's from the Skill tool.
+  // Preloads into a subagent's frontmatter show in neither and are missed.
+  on('command.run', async ($, e, next) => {
     const result = await next(e)
-    await addSkills($, [e.skill])
+
+    if (await isSkillCommand($, e.command)) {
+      await addSkills($, [{ name: e.command, how: 'typed', agent: null, at: await $.clock.now() }])
+    }
+
+    return result
+  })
+
+  on('tool.call', { tool: 'Skill' }, async ($, e, next) => {
+    const result = await next(e)
+
+    if (!result.deny && !result.isError && typeof e.skill === 'string') {
+      await addSkills($, [{ name: e.skill, how: 'claude', agent: await agentType($, e.agentId), at: await $.clock.now() }])
+    }
 
     return result
   })
@@ -386,6 +438,7 @@ export const register: Register = (on, options) => {
     const context = usage?.context
     const rows = (await read($, breakdownAtom)) ?? []
     const rowBarWidth = Math.max(8, Math.min(40, e.props.bodyColumns - ROW_COLUMNS - TOKEN_COLUMNS - 2))
+    const skills = await read($, skillsAtom)
 
     return (
       <Box flexDirection="column" gap={1}>
@@ -415,6 +468,28 @@ export const register: Register = (on, options) => {
                     {tokens(row.tokens)}
                   </Text>
                 </Box>
+              </Box>
+            ))}
+          </Box>
+        )}
+
+        {skills.length > 0 && (
+          <Box flexDirection="column">
+            <Text bold>Skills</Text>
+            {skills.map(skill => (
+              <Box key={`skill-${skill.agent ?? 'main'}-${skill.name}`} flexDirection="row" gap={1}>
+                <Box width={ROW_COLUMNS} flexShrink={0}>
+                  <Text wrap="truncate">{skillLabel(skill)}</Text>
+                </Box>
+                <Box width={SKILL_COLUMNS} flexShrink={0}>
+                  <Text dimColor>{skill.how === 'typed' ? 'typed' : 'Claude'}</Text>
+                </Box>
+                <Box width={ROW_COLUMNS} flexShrink={0}>
+                  <Text dimColor wrap="truncate">
+                    {skill.agent ?? 'main'}
+                  </Text>
+                </Box>
+                <Text dimColor>{skill.at === null ? 'resumed' : clockTime(skill.at)}</Text>
               </Box>
             ))}
           </Box>
@@ -557,7 +632,7 @@ export const register: Register = (on, options) => {
           <Box key="skills" flexDirection="row" gap={1} paddingLeft={1}>
             {isNerd && e.surface !== 'desktop' ? <Text color="yellow">{NERD_SKILLS}</Text> : <Text dimColor>skills</Text>}
             <Text dimColor wrap="truncate">
-              {skills.join(', ')}
+              {skillsLine(skills)}
             </Text>
           </Box>
         )}

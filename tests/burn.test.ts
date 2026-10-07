@@ -61,7 +61,16 @@ async function seed($: Engine, on: On): Promise<void> {
 
     return h(Box, {}) as RenderElement
   })
-  on('skill.prompt', async (_$, e) => ({ text: e.text }))
+  on('command.list', async () => ({
+    value: [
+      { name: 'commit', description: '', source: 'user' as const },
+      { name: 'probe:pang', description: '', source: 'plugin' as const, plugin: 'probe' },
+      { name: 'burn', description: '', source: 'plugin' as const, plugin: 'burn' },
+      { name: 'compact', description: '', source: 'builtin' as const },
+    ],
+  }))
+  on('command.run', async () => ({ text: '' }))
+  on('tool.call', { tool: 'Skill' }, async () => ({ result: { success: true } as never }))
   on('session.messages', async () => ({
     value: [{ role: 'assistant' as const, text: '', toolUses: [{ tool_use_id: 't1', tool: 'Skill', input: { skill: 'tdd' } }] }],
   }))
@@ -198,14 +207,47 @@ describe('drawing', () => {
     }
   })
 
-  test('the band lists loaded skills on a row of their own', async ($, on) => {
+  test('the band and pane list the skills you typed and Claude invoked', async ($, on) => {
     on('command.register', async (_$, e) => ({ value: { command: e.name } }))
     on('session.start', async (_$, e) => ({ cwd: e.cwd }))
     await seed($, on)
     // A resumed session reads the skills it loaded before from the transcript
     await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-    await $.skill.prompt({ skill: 'spatie-guidelines', text: '' })
-    await $.skill.prompt({ skill: 'tdd', text: '' })
+
+    for (const command of ['commit', 'probe:pang', 'compact', 'burn']) {
+      await $.command.run({ command, args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+    }
+
+    await $.tool.call({ tool: 'Skill', skill: 'grilling' })
+    await $.tool.call({ tool: 'Skill', skill: 'tdd' })
+    await $.tool.call({ tool: 'Skill', skill: 'pong', agentId: 'a1' })
+    const band = await $.ui.mount({
+      plugin: 'burn',
+      surface: 'terminal',
+      component: 'AbovePrompt',
+      props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 140, scroll: SCROLL, view: {} },
+    })
+
+    // Built-ins and code-registered commands aren't skills, and tdd is listed once, where it first loaded
+    expect(await band.find({ type: 'Text', text: 'tdd  /commit  /probe:pang  grilling   › Explore: pong' })).toBeDefined()
+
+    const pane = await $.ui.mount({
+      plugin: 'burn',
+      surface: 'terminal',
+      component: 'Pane',
+      requestId: 'burn',
+      props: { title: 'burn', isFocused: true, bodyColumns: 80, placement: 'dock', scroll: SCROLL, view: {} },
+    })
+
+    expect(await pane.find({ key: 'skill-main-commit' })).toBeDefined()
+    expect(await pane.find({ key: 'skill-Explore-pong' })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: 'resumed' })).toBeDefined()
+  })
+
+  test('a failed Skill call is not listed', async ($, on) => {
+    on('tool.call', { tool: 'Skill' }, async () => ({ deny: 'Unknown skill: nope' }))
+    await seed($, on)
+    await $.tool.call({ tool: 'Skill', skill: 'nope' })
     const ui = await $.ui.mount({
       plugin: 'burn',
       surface: 'terminal',
@@ -213,8 +255,7 @@ describe('drawing', () => {
       props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 140, scroll: SCROLL, view: {} },
     })
 
-    // tdd came from the transcript, so it is listed once and first
-    expect(await ui.find({ type: 'Text', text: 'tdd, spatie-guidelines' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'nope' })).toBeUndefined()
   })
 
   test('the band draws Nerd Font icons in the terminal when asked', { options: { terminalIcons: 'nerd' } }, async ($, on) => {

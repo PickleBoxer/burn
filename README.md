@@ -12,8 +12,8 @@ In the terminal:
  Opus 5.5 › Explore   ◔ 31% ctx 62k/200k   ◑ 59% 5h ↻7m   ◕ 81% 7d ↻8h57m   ● €120.06/120   ≈$3.27 session
 ```
 
-- **Band above the prompt**: the model and any subagents running under it, context window fill, 5 hour and weekly limit usage with a reset countdown, your usage credits for the month, and this session's cost. Skills loaded this session get a row of their own below it. The Desktop app draws the rings as SVG, the terminal as glyphs.
-- **`/burn`**: opens a pane with what fills the context (as `/context` counts it), the limits, credits, a bar chart of the last 7 days and the totals. **Compact** (`c`) compacts the session, **Refresh** (`r`) reloads the figures, and `/burn refresh` does the same from the prompt.
+- **Band above the prompt**: the model and any subagents running under it, context window fill, 5 hour and weekly limit usage with a reset countdown, your usage credits for the month, and this session's cost. Skills loaded this session get a row of their own below it: `/commit` for one you typed, `tdd` for one Claude invoked, and `› Explore: pong` for one a subagent invoked. The Desktop app draws the rings as SVG, the terminal as glyphs.
+- **`/burn`**: opens a pane with what fills the context (as `/context` counts it), each skill with who loaded it, where and when, the limits, credits, a bar chart of the last 7 days and the totals. **Compact** (`c`) compacts the session, **Refresh** (`r`) reloads the figures, and `/burn refresh` does the same from the prompt.
 - **Context warning**: a toast once the context passes 85%, suggesting `/compact`.
 
 ## Install
