@@ -185,28 +185,37 @@ describe('context', () => {
 })
 
 describe('drawing', () => {
-  test('the band shows limits, credits and session spend on every surface', async ($, on) => {
+  test('the band shows limits, credits and session spend in the terminal', async ($, on) => {
     await seed($, on)
 
-    for (const surface of SURFACES) {
-      const ui = await $.ui.mount({
-        plugin: 'burn',
-        surface,
-        component: 'AbovePrompt',
-        props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 140, scroll: SCROLL, view: {} },
-      })
+    const ui = await $.ui.mount({
+      plugin: 'burn',
+      surface: 'terminal',
+      component: 'AbovePrompt',
+      props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 140, scroll: SCROLL, view: {} },
+    })
 
-      expect(await ui.find({ type: 'Text', text: '83%' })).toBeDefined()
-      expect(await ui.find({ type: 'Text', text: 'ctx 62k/200k' })).toBeDefined()
-      // The terminal can't draw Svg, so its rings are pie glyphs
-      expect(await ui.find(surface === 'desktop' ? { type: 'Svg' } : { type: 'Text', text: '◕' })).toBeDefined()
-      expect(await ui.find({ type: 'Text', text: '€120.06/120' })).toBeDefined()
-      expect(await ui.find({ type: 'Text', text: '≈$0.75 session' })).toBeDefined()
-      // Only the running subagent follows the model
-      expect(await ui.find({ type: 'Text', text: 'Opus 5.5' })).toBeDefined()
-      expect(await ui.find({ type: 'Text', text: '› Explore' })).toBeDefined()
-      await ui.unmount()
-    }
+    expect(await ui.find({ type: 'Text', text: '83%' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'ctx 62k/200k' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '◕' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '€120.06/120' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '≈$0.75 session' })).toBeDefined()
+    // Only the running subagent follows the model
+    expect(await ui.find({ type: 'Text', text: 'Opus 5.5' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '› Explore' })).toBeDefined()
+  })
+
+  test('the band draws nothing in the Desktop app', async ($, on) => {
+    await seed($, on)
+
+    const ui = await $.ui.mount({
+      plugin: 'burn',
+      surface: 'desktop',
+      component: 'AbovePrompt',
+      props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 140, scroll: SCROLL, view: {} },
+    })
+
+    expect(await ui.find({ type: 'Text', text: '83%' })).toBeUndefined()
   })
 
   test('the band and pane list the skills you typed and Claude invoked', async ($, on) => {

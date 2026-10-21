@@ -8,7 +8,6 @@ import {
   contextLevel,
   creditsLabel,
   creditsPercent,
-  currencySymbol,
   daysAgo,
   glyph,
   lastSevenDays,
@@ -45,7 +44,6 @@ const hasWarnedAtom = atom({ plugin: 'burn', key: 'hasWarned' } as const, false)
 const agentAtom = atom({ plugin: 'burn', key: 'agent' } as const, null)
 const skillsAtom = atom({ plugin: 'burn', key: 'skills' } as const, [])
 
-const HEX = { green: '#4caf50', yellow: '#d9a520', red: '#e5534b' }
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function toUsage(source: SessionUsage | SessionMeasureInput): Usage {
@@ -60,7 +58,7 @@ function toUsage(source: SessionUsage | SessionMeasureInput): Usage {
   }
 }
 
-// What each band group measures, drawn as an icon inside Desktop's ring
+// What each band group measures, drawn as a Nerd Font icon
 type Kind = 'context' | 'five_hour' | 'seven_day' | 'credits'
 
 // Nerd Font md-robot, shown before the model
@@ -83,39 +81,6 @@ function nerdIcon(kind: Kind | null, currency: string): string | null {
 
 function kindOf(limitKind: string): Kind | null {
   return limitKind === 'five_hour' || limitKind === 'seven_day' ? limitKind : null
-}
-
-// Icons drawn in the middle of a 24 by 24 ring, in the ring's color
-function innerIcon(kind: Kind | null, hex: string, currency: string): string {
-  const stroke = `fill="none" stroke="${hex}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"`
-
-  switch (kind) {
-    case 'context':
-      return `<path d="M8.5 9h7M8.5 12h7M8.5 15h7" ${stroke}/>`
-    case 'five_hour':
-      return `<circle cx="12" cy="12" r="4.2" ${stroke}/><path d="M12 9.8V12l1.6 1.1" ${stroke}/>`
-    case 'seven_day':
-      return `<rect x="8" y="8.6" width="8" height="7.4" rx="1.4" ${stroke}/><path d="M8 11h8M10.3 7.6v1.8M13.7 7.6v1.8" ${stroke}/>`
-    case 'credits':
-      return `<text x="12" y="15.4" text-anchor="middle" font-family="-apple-system, system-ui, sans-serif" font-size="9.5" font-weight="700" fill="${hex}">${currency}</text>`
-    default:
-      return ''
-  }
-}
-
-function ring(percent: number, color: keyof typeof HEX, kind: Kind | null, currency = '$'): string {
-  const r = 10
-  const length = 2 * Math.PI * r
-  const filled = (Math.min(100, percent) / 100) * length
-
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">` +
-    `<circle cx="12" cy="12" r="${r}" fill="none" stroke="#444" stroke-width="2.2"/>` +
-    `<circle cx="12" cy="12" r="${r}" fill="none" stroke="${HEX[color]}" stroke-width="2.2" ` +
-    `stroke-linecap="round" stroke-dasharray="${filled} ${length}" transform="rotate(-90 12 12)"/>` +
-    innerIcon(kind, HEX[color], currency) +
-    `</svg>`
-  )
 }
 
 function weekday(date: string): string {
@@ -578,24 +543,20 @@ export const register: Register = (on, options) => {
     const credits = await read($, creditsAtom)
     const now = (await read($, nowAtom)) || (await $.clock.now())
 
-    if (e.props.hasSurvey || !usage) {
+    // The band draws only in the terminal
+    if (e.surface === 'desktop' || e.props.hasSurvey || !usage) {
       return next(e)
     }
 
     const agent = await read($, agentAtom)
     const skills = await read($, skillsAtom)
-    const elements = $.ui.resolve(e)
-    const { Box, Text } = elements
+    const { Box, Text } = $.ui.resolve(e)
     const isCompact = e.props.bodyColumns < 100
     const sum = totals(usage.sessionUsd, await read($, daysAtom), now)
 
-    // Svg draws only on Desktop, so the terminal gets a pie glyph instead
-    const icon = (percent: number, kind: Kind | null, color = level(percent)) =>
-      e.surface === 'desktop' && 'Svg' in elements ? (
-        <elements.Svg source={ring(percent, color, kind, currencySymbol(credits?.currency ?? 'USD'))} alt={`${percent}%`} width={22} height={22} />
-      ) : (
-        <Text color={color}>{(isNerd ? nerdIcon(kind, credits?.currency ?? 'USD') : null) ?? glyph(percent)}</Text>
-      )
+    const icon = (percent: number, kind: Kind | null, color = level(percent)) => (
+      <Text color={color}>{(isNerd ? nerdIcon(kind, credits?.currency ?? 'USD') : null) ?? glyph(percent)}</Text>
+    )
     const context = usage.context
     const below = await next(e)
 
@@ -604,7 +565,7 @@ export const register: Register = (on, options) => {
         <Box flexDirection="row" gap={3} paddingLeft={1}>
           {agent && (
             <Box key="agent" flexDirection="row" gap={1}>
-              {isNerd && e.surface !== 'desktop' && <Text color="magenta">{NERD_AGENT}</Text>}
+              {isNerd && <Text color="magenta">{NERD_AGENT}</Text>}
               <Text bold>{modelName(agent.model, isCompact)}</Text>
               {agent.subagents.length > 0 && <Text dimColor>› {agent.subagents.join(', ')}</Text>}
             </Box>
@@ -645,7 +606,7 @@ export const register: Register = (on, options) => {
         </Box>
         {skills.length > 0 && (
           <Box key="skills" flexDirection="row" gap={1} paddingLeft={1}>
-            {isNerd && e.surface !== 'desktop' ? <Text color="yellow">{NERD_SKILLS}</Text> : <Text dimColor>skills</Text>}
+            {isNerd ? <Text color="yellow">{NERD_SKILLS}</Text> : <Text dimColor>skills</Text>}
             <Text dimColor wrap="truncate">
               {skillsLine(skills)}
             </Text>

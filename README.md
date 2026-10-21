@@ -2,17 +2,11 @@
 
 A [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/overview) that shows your context, rate limits, usage credits and spend above the prompt.
 
-In the Desktop app:
-
-![burn in the Claude Desktop app](docs/desktop.png)
-
-In the terminal:
-
 ```
  Opus 5.5 › Explore   ◔ 31% ctx 62k/200k   ◑ 59% 5h ↻7m   ◕ 81% 7d ↻8h57m   ● €120.06/120   ≈$3.27 session
 ```
 
-- **Band above the prompt**: the model and any subagents running under it, context window fill, 5 hour and weekly limit usage with a reset countdown, your usage credits for the month, and this session's cost. Skills loaded this session get a row of their own below it, whether you typed them, Claude invoked them or Claude read their SKILL.md, with a subagent's after `› Explore:`. The Desktop app draws the rings as SVG, the terminal as glyphs.
+- **Band above the prompt**: the model and any subagents running under it, context window fill, 5 hour and weekly limit usage with a reset countdown, your usage credits for the month, and this session's cost. Skills loaded this session get a row of their own below it, whether you typed them, Claude invoked them or Claude read their SKILL.md, with a subagent's after `› Explore:`. The band draws only in the terminal; the Desktop app gets the `/burn` pane.
 - **`/burn`**: opens a pane with what fills the context (as `/context` counts it), each skill with where and when it loaded, the limits, credits, a bar chart of the last 7 days and the totals. **Compact** (`c`) compacts the session, **Refresh** (`r`) reloads the figures, and `/burn refresh` does the same from the prompt.
 - **Context warning**: a toast once the context passes 85%, suggesting `/compact`.
 
